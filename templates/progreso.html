@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Verificando SSSalud</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 30px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #1f2937;
+        }
+
+        .contenedor {
+            max-width: 700px;
+            margin: auto;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+        }
+
+        h1 {
+            margin-top: 0;
+            text-align: center;
+        }
+
+        .estado {
+            text-align: center;
+            font-size: 18px;
+            margin: 20px 0;
+        }
+
+        .porcentaje {
+            text-align: center;
+            font-size: 42px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+
+        .barra {
+            width: 100%;
+            height: 24px;
+            background: #e5e7eb;
+            border-radius: 20px;
+            overflow: hidden;
+            margin-bottom: 30px;
+        }
+
+        .barra-progreso {
+            height: 100%;
+            width: 0%;
+            background: #2563eb;
+            transition: width 0.5s ease;
+        }
+
+        .datos {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .dato {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .dato-titulo {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 6px;
+        }
+
+        .dato-valor {
+            font-size: 18px;
+            font-weight: bold;
+            word-break: break-word;
+        }
+
+        .resultado {
+            margin-top: 20px;
+            padding: 18px;
+            background: #f8fafc;
+            border-radius: 10px;
+        }
+
+        .resultado-titulo {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 8px;
+        }
+
+        .boton {
+            display: block;
+            width: 100%;
+            margin-top: 25px;
+            padding: 15px;
+            background: #16a34a;
+            color: white;
+            text-decoration: none;
+            text-align: center;
+            border-radius: 10px;
+            font-weight: bold;
+            font-size: 17px;
+        }
+
+        .oculto {
+            display: none;
+        }
+
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 600px) {
+
+            body {
+                padding: 15px;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            .datos {
+                grid-template-columns: 1fr;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="contenedor">
+
+    <div class="card">
+
+        <h1>
+            🔎 Verificando SSSalud
+        </h1>
+
+        <div
+            id="estado"
+            class="estado">
+            🔎 Preparando consulta...
+        </div>
+
+        <div
+            id="porcentaje"
+            class="porcentaje">
+            0%
+        </div>
+
+        <div class="barra">
+
+            <div
+                id="barraProgreso"
+                class="barra-progreso">
+            </div>
+
+        </div>
+
+        <div class="datos">
+
+            <div class="dato">
+
+                <div class="dato-titulo">
+                    FILA
+                </div>
+
+                <div
+                    id="fila"
+                    class="dato-valor">
+                    -
+                </div>
+
+            </div>
+
+            <div class="dato">
+
+                <div class="dato-titulo">
+                    DNI
+                </div>
+
+                <div
+                    id="dni"
+                    class="dato-valor">
+                    -
+                </div>
+
+            </div>
+
+            <div class="dato">
+
+                <div class="dato-titulo">
+                    PROCESADAS
+                </div>
+
+                <div
+                    id="procesadas"
+                    class="dato-valor">
+                    0 / 0
+                </div>
+
+            </div>
+
+            <div class="dato">
+
+                <div class="dato-titulo">
+                    ✅ AFILIADOS
+                </div>
+
+                <div
+                    id="afiliados"
+                    class="dato-valor">
+                    0
+                </div>
+
+            </div>
+
+            <div class="dato">
+
+                <div class="dato-titulo">
+                    ⚪ NO AFILIADOS
+                </div>
+
+                <div
+                    id="noAfiliados"
+                    class="dato-valor">
+                    0
+                </div>
+
+            </div>
+
+            <div class="dato">
+
+                <div class="dato-titulo">
+                    ❌ ERRORES
+                </div>
+
+                <div
+                    id="errores"
+                    class="dato-valor">
+                    0
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="resultado">
+
+            <div class="resultado-titulo">
+                ÚLTIMO RESULTADO
+            </div>
+
+            <div
+                id="ultimoResultado"
+                class="dato-valor">
+
+                Esperando consulta...
+
+            </div>
+
+        </div>
+
+        <div
+            id="error"
+            class="error oculto">
+        </div>
+
+        <a
+            id="botonDescarga"
+            class="boton oculto"
+            href="#">
+            ⬇️ DESCARGAR EXCEL
+        </a>
+
+    </div>
+
+</div>
+
+
+<script>
+
+const idProceso = "{{ id_proceso }}";
+
+
+function actualizarProgreso() {
+
+    fetch("/progreso/" + idProceso)
+
+        .then(response => response.json())
+
+        .then(data => {
+
+            const porcentaje =
+                data.porcentaje || 0;
+
+            document.getElementById(
+                "porcentaje"
+            ).textContent =
+                porcentaje + "%";
+
+
+            document.getElementById(
+                "barraProgreso"
+            ).style.width =
+                porcentaje + "%";
+
+
+            document.getElementById(
+                "fila"
+            ).textContent =
+                data.fila || "-";
+
+
+            document.getElementById(
+                "dni"
+            ).textContent =
+                data.dni || "-";
+
+
+            document.getElementById(
+                "procesadas"
+            ).textContent =
+                (data.procesadas || 0)
+                + " / "
+                + (data.total || 0);
+
+
+            document.getElementById(
+                "afiliados"
+            ).textContent =
+                data.afiliados || 0;
+
+
+            document.getElementById(
+                "noAfiliados"
+            ).textContent =
+                data.no_afiliados || 0;
+
+
+            document.getElementById(
+                "errores"
+            ).textContent =
+                data.errores || 0;
+
+
+            document.getElementById(
+                "ultimoResultado"
+            ).textContent =
+                data.ultimo_resultado
+                || "Esperando consulta...";
+
+
+            let textoEstado =
+                "🔎 Procesando...";
+
+
+            if (
+                data.estado ===
+                "consultando"
+            ) {
+
+                textoEstado =
+                    "🔎 Consultando SSSalud...";
+
+            }
+
+            else if (
+                data.estado ===
+                "guardando"
+            ) {
+
+                textoEstado =
+                    "💾 Guardando Excel...";
+
+            }
+
+            else if (
+                data.estado ===
+                "conectando_sssalud"
+            ) {
+
+                textoEstado =
+                    "🔐 Conectando con SSSalud...";
+
+            }
+
+            else if (
+                data.estado ===
+                "abriendo_excel"
+            ) {
+
+                textoEstado =
+                    "📂 Abriendo Excel...";
+
+            }
+
+            else if (
+                data.estado ===
+                "terminado"
+            ) {
+
+                textoEstado =
+                    "✅ Proceso terminado";
+
+            }
+
+            document.getElementById(
+                "estado"
+            ).textContent =
+                textoEstado;
+
+
+            if (
+                data.estado ===
+                "terminado"
+            ) {
+
+                const boton =
+                    document.getElementById(
+                        "botonDescarga"
+                    );
+
+                boton.href =
+                    "/descargar/"
+                    + data.archivo;
+
+                boton.classList.remove(
+                    "oculto"
+                );
+
+                return;
+            }
+
+
+            if (
+                data.estado ===
+                "error"
+            ) {
+
+                const error =
+                    document.getElementById(
+                        "error"
+                    );
+
+                error.textContent =
+                    "❌ Error: "
+                    + data.error;
+
+                error.classList.remove(
+                    "oculto"
+                );
+
+                return;
+            }
+
+
+            setTimeout(
+                actualizarProgreso,
+                1000
+            );
+
+        })
+
+        .catch(error => {
+
+            console.error(error);
+
+            setTimeout(
+                actualizarProgreso,
+                3000
+            );
+
+        });
+
+}
+
+
+actualizarProgreso();
+
+</script>
+
+</body>
+
+</html>

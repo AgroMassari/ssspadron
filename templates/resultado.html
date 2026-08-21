@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Proceso terminado</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f3f4f6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .contenedor {
+            width: 100%;
+            max-width: 700px;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 35px rgba(0,0,0,0.10);
+        }
+
+        h1 {
+            text-align: center;
+            color: #111827;
+        }
+
+        .ok {
+            text-align: center;
+            font-size: 55px;
+        }
+
+        .estadisticas {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin: 30px 0;
+        }
+
+        .dato {
+            background: #f9fafb;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .numero {
+            display: block;
+            font-size: 28px;
+            font-weight: bold;
+            color: #111827;
+        }
+
+        .texto {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .boton {
+            display: block;
+            text-align: center;
+            text-decoration: none;
+            background: #111827;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+
+        .boton:hover {
+            background: #1f2937;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="contenedor">
+
+    <div class="card">
+
+        <div class="ok">
+            ✅
+        </div>
+
+        <h1>
+            Proceso terminado
+        </h1>
+
+        <div class="estadisticas">
+
+            <div class="dato">
+                <span class="numero">
+                    {{ consultas }}
+                </span>
+                <span class="texto">
+                    Consultas realizadas
+                </span>
+            </div>
+
+            <div class="dato">
+                <span class="numero">
+                    {{ afiliados }}
+                </span>
+                <span class="texto">
+                    Afiliados
+                </span>
+            </div>
+
+            <div class="dato">
+                <span class="numero">
+                    {{ no_afiliados }}
+                </span>
+                <span class="texto">
+                    No afiliados
+                </span>
+            </div>
+
+            <div class="dato">
+                <span class="numero">
+                    {{ errores }}
+                </span>
+                <span class="texto">
+                    Errores
+                </span>
+            </div>
+
+            <div class="dato">
+                <span class="numero">
+                    {{ saltadas }}
+                </span>
+                <span class="texto">
+                    Ya procesadas
+                </span>
+            </div>
+
+            <div class="dato">
+                <span class="numero">
+                    {{ sin_dni }}
+                </span>
+                <span class="texto">
+                    Sin DNI
+                </span>
+            </div>
+
+        </div>
+
+        <a
+            class="boton"
+            href="/descargar/{{ archivo }}"
+        >
+            ⬇️ DESCARGAR EXCEL PROCESADO
+        </a>
+
+        <a
+            class="boton"
+            href="/"
+        >
+            🔄 PROCESAR OTRO EXCEL
+        </a>
+
+    </div>
+
+</div>
+
+</body>
+
+</html>

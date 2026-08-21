@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Verificador SSSALUD</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f3f4f6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .contenedor {
+            width: 100%;
+            max-width: 650px;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 35px rgba(0,0,0,0.10);
+            text-align: center;
+        }
+
+        h1 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #111827;
+        }
+
+        .descripcion {
+            color: #6b7280;
+            margin-bottom: 30px;
+        }
+
+        .zona {
+            border: 2px dashed #9ca3af;
+            border-radius: 12px;
+            padding: 40px 20px;
+            margin-bottom: 25px;
+            background: #f9fafb;
+        }
+
+        .icono {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        input[type="file"] {
+            margin-top: 15px;
+            width: 100%;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            background: #111827;
+            color: white;
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1f2937;
+        }
+
+        .info {
+            margin-top: 25px;
+            font-size: 14px;
+            color: #6b7280;
+            line-height: 1.6;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="contenedor">
+
+    <div class="card">
+
+        <h1>Verificador SSSALUD</h1>
+
+        <div class="descripcion">
+            Verificación automática de cobertura por DNI
+        </div>
+
+        <form
+            action="/procesar"
+            method="POST"
+            enctype="multipart/form-data"
+        >
+
+            <div class="zona">
+
+                <div class="icono">
+                    📊
+                </div>
+
+                <strong>
+                    Seleccioná el archivo Excel
+                </strong>
+
+                <br>
+
+                <input
+                    type="file"
+                    name="archivo"
+                    accept=".xlsx"
+                    required
+                >
+
+            </div>
+
+            <button type="submit">
+                🔎 INICIAR VERIFICACIÓN
+            </button>
+
+        </form>
+
+        <div class="info">
+
+            El sistema consultará los DNI pendientes
+            en SSSALUD y completará la columna
+            de Obra Social.
+
+            <br><br>
+
+            Las filas que ya tengan información
+            no serán consultadas nuevamente.
+
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+
+</html>
