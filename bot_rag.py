@@ -67,20 +67,24 @@ def _cargar_excel(ruta: Path) -> list:
     import openpyxl
     from langchain.schema import Document
     documentos = []
-    wb = openpyxl.load_workbook(ruta, data_only=True)
-    for nombre_hoja in wb.sheetnames:
-        ws = wb[nombre_hoja]
-        filas_texto = []
-        for fila in ws.iter_rows(values_only=True):
-            partes = [str(c) for c in fila if c is not None]
-            if partes:
-                filas_texto.append(" | ".join(partes))
-        if filas_texto:
-            contenido = "=== Hoja: {} ===\n{}".format(nombre_hoja, "\n".join(filas_texto))
-            documentos.append(Document(
-                page_content=contenido,
-                metadata={"source": str(ruta), "sheet": nombre_hoja},
-            ))
+    # read_only=True es CLAVE para no saturar la memoria RAM
+    wb = openpyxl.load_workbook(ruta, data_only=True, read_only=True)
+    try:
+        for nombre_hoja in wb.sheetnames:
+            ws = wb[nombre_hoja]
+            filas_texto = []
+            for fila in ws.iter_rows(values_only=True):
+                partes = [str(c) for c in fila if c is not None]
+                if partes:
+                    filas_texto.append(" | ".join(partes))
+            if filas_texto:
+                contenido = "=== Hoja: {} ===\n{}".format(nombre_hoja, "\n".join(filas_texto))
+                documentos.append(Document(
+                    page_content=contenido,
+                    metadata={"source": str(ruta), "sheet": nombre_hoja},
+                ))
+    finally:
+        wb.close()
     return documentos
 
 
