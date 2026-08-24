@@ -28,3 +28,4 @@ langchain-community
 chromadb
 PyMuPDF
 tiktoken
+openai
