@@ -246,8 +246,8 @@ Estructura tu respuesta:
 |---|---|---|---|---|---|
 [una fila por procedimiento]
 
-## Materiales / Gastos adicionales facturables
-[si aplica según instructivos]
+## Materiales / Descartables facturables
+[Cruzá los materiales y descartables mencionados en la foja con las reglas del instructivo sobre qué se factura y qué no. LISTÁ EXPLÍCITAMENTE los que SÍ se pueden facturar según la norma. Si la foja menciona algo que el instructivo prohíbe facturar, aclaralo brevemente.]
 
 ## Reglas especiales aplicadas
 [explicar aquí en detalle si hubo reducción por acto múltiple u otra regla, citando la regla del instructivo y detallando qué porcentaje (ej. 100%, 50%, 25%) le corresponde a cada procedimiento según la resolución]
@@ -287,8 +287,8 @@ Estructura tu respuesta:
 |---|---|---|---|---|---|
 [una fila por procedimiento]
 
-## Materiales / Gastos adicionales facturables
-[si aplica según instructivos adjuntos]
+## Materiales / Descartables facturables
+[Cruzá los materiales y descartables mencionados en la foja con las reglas del instructivo sobre qué se factura y qué no. LISTÁ EXPLÍCITAMENTE los que SÍ se pueden facturar según la norma. Si la foja menciona algo que el instructivo prohíbe facturar, aclaralo brevemente.]
 
 ## Reglas especiales aplicadas
 [explicar aquí en detalle si hubo reducción por acto múltiple u otra regla, citando la regla del instructivo y detallando qué porcentaje (ej. 100%, 50%, 25%) le corresponde a cada procedimiento según la resolución]
