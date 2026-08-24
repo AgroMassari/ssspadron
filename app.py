@@ -721,8 +721,20 @@ def webhook_recibir():
 _estado_indexado = {}
 
 
+BOT_PASSWORD = "Lupeycoca2026"
+
+
+def _verificar_clave_bot():
+    """Verifica la contraseña del Bot. Retorna True si es válida."""
+    clave = request.form.get("clave") or request.args.get("clave") or ""
+    return clave == BOT_PASSWORD
+
+
 @app.route("/api/upload_docs", methods=["POST"])
 def upload_documento():
+
+    if not _verificar_clave_bot():
+        return jsonify({"ok": False, "error": "Contraseña incorrecta."}), 403
 
     archivo = request.files.get("documento")
 
@@ -774,7 +786,37 @@ def estado_indexado(nombre):
 
 @app.route("/api/docs", methods=["GET"])
 def listar_docs():
+    if not _verificar_clave_bot():
+        return jsonify({"ok": False, "error": "Contraseña incorrecta."}), 403
     return jsonify(listar_documentos())
+
+
+# ============================================================
+# ELIMINAR DOCUMENTO DEL BOT
+# ============================================================
+
+@app.route("/api/delete_doc", methods=["POST"])
+def eliminar_doc():
+    if not _verificar_clave_bot():
+        return jsonify({"ok": False, "error": "Contraseña incorrecta."}), 403
+
+    nombre = request.form.get("nombre", "").strip()
+    if not nombre:
+        return jsonify({"ok": False, "error": "No se indicó el nombre del archivo."}), 400
+
+    # Seguridad: evitar path traversal
+    ruta = (DOCS_DIR / nombre).resolve()
+    if not str(ruta).startswith(str(DOCS_DIR.resolve())):
+        return jsonify({"ok": False, "error": "Nombre de archivo inválido."}), 400
+
+    if not ruta.exists():
+        return jsonify({"ok": False, "error": "Archivo no encontrado."}), 404
+
+    try:
+        ruta.unlink()
+        return jsonify({"ok": True, "mensaje": f"{nombre} eliminado correctamente."})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ============================================================

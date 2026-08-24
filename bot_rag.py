@@ -369,6 +369,40 @@ def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> 
         )
         return {"ok": True, "analisis": respuesta.choices[0].message.content}
     except Exception as e:
+        err_str = str(e).lower()
+        # Reintentar una vez si la API está sobrecargada
+        if "overloaded" in err_str or "rate limit" in err_str or "529" in err_str:
+            import time
+            logger.warning("API sobrecargada, reintentando en 8 segundos...")
+            time.sleep(8)
+            try:
+                respuesta = client.chat.completions.create(
+                    model=MODEL_VISION,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{mime_type};base64,{b64_image}",
+                                        "detail": "auto",
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                    max_tokens=2000,
+                    timeout=55,
+                )
+                return {"ok": True, "analisis": respuesta.choices[0].message.content}
+            except Exception as e2:
+                logger.error("Error en reintento GPT-4o Vision: %s", e2)
+                return {
+                    "ok": False,
+                    "error": "La API de OpenAI está temporalmente sobrecargada. Esperá unos minutos e intentá de nuevo."
+                }
         logger.error("Error en GPT-4o Vision: %s", e)
         return {"ok": False, "error": f"Error al analizar la imagen: {e}"}
 

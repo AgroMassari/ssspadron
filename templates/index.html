@@ -372,36 +372,62 @@
 
         </div>
 
-        <!-- ══════════════════════════════════════════════════ -->
-        <!-- CARD 3: Bot WhatsApp – gestión de documentos      -->
-        <!-- ══════════════════════════════════════════════════ -->
+        <!-- Modal de contraseña -->
+        <div id="modal-clave" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000; display:none; align-items:center; justify-content:center;">
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:32px 28px; max-width:380px; width:90%; box-shadow:var(--shadow);">
+                <div style="font-size:2rem; text-align:center; margin-bottom:12px;">🔒</div>
+                <div style="font-size:1.1rem; font-weight:600; text-align:center; margin-bottom:6px;">Zona protegida</div>
+                <div style="color:var(--muted); font-size:0.85rem; text-align:center; margin-bottom:20px;">Ingresá la contraseña para gestionar los documentos del bot</div>
+                <input type="password" id="input-clave" placeholder="Contraseña" autocomplete="off"
+                    style="width:100%; padding:12px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:1rem; margin-bottom:14px; outline:none;">
+                <div style="color:#ff6b6b; font-size:0.82rem; margin-bottom:12px; min-height:18px;" id="error-clave"></div>
+                <div style="display:flex; gap:10px;">
+                    <button onclick="cerrarModalClave()" style="flex:1; padding:12px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--muted); cursor:pointer; font-size:0.9rem;">Cancelar</button>
+                    <button onclick="confirmarClave()" style="flex:1; padding:12px; background:var(--accent); border:none; border-radius:8px; color:white; cursor:pointer; font-size:0.9rem; font-weight:600;">Ingresar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================== -->
+        <!-- CARD 3: Bot WhatsApp – gestión de documentos  -->
+        <!-- ============================================== -->
         <div class="card">
 
             <div class="card-header">
                 <div class="card-icon icon-green">🤖</div>
                 <div>
                     <div class="card-title">Bot WhatsApp con IA – Documentos de referencia</div>
-                    <div class="card-desc">Subí los nomencladores e instructivos que usará el bot para responder</div>
+                    <div class="card-desc">Subí los nomencladores e instructivos que usará el bot para responder 🔒 Zona protegida</div>
                 </div>
             </div>
 
-            <label for="archivo-doc" id="zona-doc" class="zona-drop verde">
-                <div class="zona-icono">📄</div>
-                <div class="zona-texto">
-                    <strong style="color: var(--text);">Subir nomenclador, instructivo o manual</strong><br>
-                    PDF, TXT, DOCX o Excel
-                </div>
-            </label>
-            <input type="file" id="archivo-doc" accept=".pdf,.txt,.docx,.doc,.xlsx,.xls">
-            <p class="archivo-nombre" id="nombre-doc">Ningún archivo seleccionado</p>
+            <!-- Si no está autenticado, muestra botón de desbloqueo -->
+            <div id="zona-bloqueada" style="text-align:center; padding:30px 0;">
+                <div style="font-size:3rem;">🔒</div>
+                <div style="color:var(--muted); margin:10px 0 20px;">Esta sección requiere contraseña</div>
+                <button class="btn btn-green" onclick="abrirModalClave()" style="max-width:240px; margin:0 auto;">🔑 INGRESAR CLAVE</button>
+            </div>
 
-            <button class="btn btn-green" id="btn-subir">
-                ⬆️ CARGAR AL BOT
-            </button>
+            <!-- Contenido visible solo tras autenticarse -->
+            <div id="zona-bot" style="display:none;">
+                <label for="archivo-doc" id="zona-doc" class="zona-drop verde">
+                    <div class="zona-icono">📄</div>
+                    <div class="zona-texto">
+                        <strong style="color: var(--text);">Subir nomenclador, instructivo o manual</strong><br>
+                        PDF, TXT, DOCX o Excel
+                    </div>
+                </label>
+                <input type="file" id="archivo-doc" accept=".pdf,.txt,.docx,.doc,.xlsx,.xls">
+                <p class="archivo-nombre" id="nombre-doc">Ningún archivo seleccionado</p>
 
-            <div id="lista-docs">
-                <div style="color: var(--muted); font-size: 0.85rem; margin-top: 12px;">
-                    Cargando documentos...
+                <button class="btn btn-green" id="btn-subir">
+                    ⬆️ CARGAR AL BOT
+                </button>
+
+                <div id="lista-docs">
+                    <div style="color: var(--muted); font-size: 0.85rem; margin-top: 12px;">
+                        Cargando documentos...
+                    </div>
                 </div>
             </div>
 
@@ -522,9 +548,58 @@
             });
         }
 
-        // ══════════════════════════════════════════════════════
-        // CARD 3 – Bot WhatsApp – documentos
-        // ══════════════════════════════════════════════════════
+        // ======================================================
+        // CARD 3 – Bot WhatsApp – Contraseña y documentos
+        // ======================================================
+
+        let claveBot = sessionStorage.getItem('claveBot') || '';
+
+        function abrirModalClave(callback) {
+            window._claveCallback = callback || null;
+            document.getElementById('modal-clave').style.display = 'flex';
+            document.getElementById('input-clave').value = '';
+            document.getElementById('error-clave').textContent = '';
+            setTimeout(() => document.getElementById('input-clave').focus(), 100);
+        }
+
+        function cerrarModalClave() {
+            document.getElementById('modal-clave').style.display = 'none';
+            window._claveCallback = null;
+        }
+
+        document.getElementById('input-clave').addEventListener('keydown', e => {
+            if (e.key === 'Enter') confirmarClave();
+        });
+
+        function confirmarClave() {
+            const val = document.getElementById('input-clave').value.trim();
+            claveBot = val;
+            sessionStorage.setItem('claveBot', val);
+            // Verificación rápida: intentar listar docs con esa clave
+            fetch('/api/docs?clave=' + encodeURIComponent(val))
+                .then(r => r.json())
+                .then(d => {
+                    if (d.ok === false && d.error && d.error.includes('Contraseña')) {
+                        document.getElementById('error-clave').textContent = '❌ Contraseña incorrecta.';
+                        claveBot = '';
+                        sessionStorage.removeItem('claveBot');
+                    } else {
+                        document.getElementById('modal-clave').style.display = 'none';
+                        desbloquearZonaBot();
+                        if (window._claveCallback) window._claveCallback();
+                    }
+                })
+                .catch(() => { document.getElementById('error-clave').textContent = 'Error de conexión.'; });
+        }
+
+        function desbloquearZonaBot() {
+            document.getElementById('zona-bloqueada').style.display = 'none';
+            document.getElementById('zona-bot').style.display = 'block';
+            cargarListaDocs();
+        }
+
+        // Si ya tenía clave guardada en sesión, desbloquear directo
+        if (claveBot) desbloquearZonaBot();
 
         const inputDoc = document.getElementById('archivo-doc');
         const btnSubir = document.getElementById('btn-subir');
@@ -545,14 +620,20 @@
 
             const fd = new FormData();
             fd.append('documento', archivo);
+            fd.append('clave', claveBot);
 
             try {
-                // 1. Subir archivo (devuelve casi inmediato)
                 const res  = await fetch('/api/upload_docs', { method: 'POST', body: fd });
                 const data = await res.json();
 
                 if (!data.ok) {
-                    mostrarToast('❌ ' + (data.error || 'Error al subir.'), false);
+                    if (res.status === 403) {
+                        mostrarToast('🔒 Contraseña incorrecta. Recargá la página e ingresá de nuevo.', false);
+                        sessionStorage.removeItem('claveBot');
+                        claveBot = '';
+                    } else {
+                        mostrarToast('❌ ' + (data.error || 'Error al subir.'), false);
+                    }
                     btnSubir.innerHTML = '⬆️ CARGAR AL BOT';
                     btnSubir.disabled  = false;
                     return;
@@ -560,11 +641,10 @@
 
                 mostrarToast('⏳ Subido. Indexando documento...', true);
 
-                // 2. Polling de estado
                 const nombreArchivo = data.nombre;
                 const checkInterval = setInterval(async () => {
                     try {
-                        const estRes = await fetch(`/api/estado_indexado/${encodeURIComponent(nombreArchivo)}`);
+                        const estRes  = await fetch(`/api/estado_indexado/${encodeURIComponent(nombreArchivo)}`);
                         const estData = await estRes.json();
 
                         if (estData.estado === 'listo') {
@@ -597,24 +677,53 @@
         async function cargarListaDocs() {
             const cont = document.getElementById('lista-docs');
             try {
-                const docs = await (await fetch('/api/docs')).json();
-                if (!docs.length) {
-                    cont.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;margin-top:12px;">No hay documentos cargados todavía. Subí al menos un nomenclador o instructivo.</p>';
+                const res  = await fetch('/api/docs?clave=' + encodeURIComponent(claveBot));
+                const docs = await res.json();
+                if (res.status === 403 || (docs.ok === false && docs.error && docs.error.includes('Contraseña'))) {
+                    cont.innerHTML = '<p style="color:#ff6b6b;font-size:0.85rem;margin-top:12px;">🔒 Sesión expirada. Recargá la página.</p>';
+                    return;
+                }
+                if (!Array.isArray(docs) || !docs.length) {
+                    cont.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;margin-top:12px;">No hay documentos cargados todavía.</p>';
                     return;
                 }
                 cont.innerHTML =
                     '<p style="color:var(--muted);font-size:0.8rem;margin:16px 0 8px;">Documentos disponibles para el bot y el análisis de fojas:</p>' +
                     docs.map(d => `
-                        <div class="doc-item">
-                            <div>
+                        <div class="doc-item" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                            <div style="flex:1;min-width:0;">
                                 <div class="doc-nombre">📎 ${d.nombre}</div>
                                 <div class="doc-size">${d.tamaño_kb} KB</div>
                             </div>
                             <span class="doc-badge">✓ Indexado</span>
+                            <button onclick="eliminarDoc('${d.nombre.replace(/'/g,"\\'")}')"
+                                style="background:#7f1d1d;border:none;color:#fca5a5;border-radius:6px;padding:5px 11px;cursor:pointer;font-size:0.8rem;white-space:nowrap;"
+                                title="Eliminar documento">
+                                🗑️ Eliminar
+                            </button>
                         </div>
                     `).join('');
             } catch {
                 cont.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;margin-top:12px;">No se pudo cargar la lista.</p>';
+            }
+        }
+
+        async function eliminarDoc(nombre) {
+            if (!confirm(`¿Eliminnar "${nombre}" del sistema?`)) return;
+            const fd = new FormData();
+            fd.append('nombre', nombre);
+            fd.append('clave', claveBot);
+            try {
+                const res  = await fetch('/api/delete_doc', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok) {
+                    mostrarToast(`🗑️ "${nombre}" eliminado.`);
+                    cargarListaDocs();
+                } else {
+                    mostrarToast('❌ ' + (data.error || 'No se pudo eliminar.'), false);
+                }
+            } catch {
+                mostrarToast('❌ Error de conexión.', false);
             }
         }
 
@@ -633,8 +742,8 @@
             t._t = setTimeout(() => t.style.display = 'none', 4500);
         }
 
-        // Cargar lista al iniciar
-        cargarListaDocs();
+        // Cargar lista solo si ya está autenticado (tiene clave en sesión)
+        if (claveBot) cargarListaDocs();
 
     </script>
 
