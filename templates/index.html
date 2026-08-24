@@ -4,10 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel SSSALUD + Bot WhatsApp</title>
+    <title>Panel SSSALUD | Validador y Bot WhatsApp</title>
     <meta name="description" content="Panel de control para verificación SSSALUD, análisis de fojas quirúrgicas y gestión del bot de WhatsApp con IA.">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
+    
+    <!-- FontAwesome y Google Fonts -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Librería marked.js para renderizar Markdown (tablas, negritas, etc) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -202,19 +207,45 @@
             padding: 20px 24px;
             font-size: 0.9rem;
             line-height: 1.7;
-            white-space: pre-wrap;
             word-break: break-word;
             max-height: 550px;
             overflow-y: auto;
         }
 
-        /* Estilo para los ## del markdown */
-        .resultado-contenido h2,
-        .md-h2 {
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: var(--orange);
-            margin: 16px 0 8px;
+        /* ── Estilos Markdown (Tablas) ── */
+        .resultado-contenido table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background: rgba(0,0,0,0.15);
+            border-radius: 8px;
+            overflow: hidden;
+            font-size: 0.9rem;
+        }
+        .resultado-contenido th {
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        .resultado-contenido td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .resultado-contenido tr:last-child td {
+            border-bottom: none;
+        }
+        .resultado-contenido h2 {
+            font-size: 1.15rem;
+            color: var(--accent);
+            margin-top: 20px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 5px;
+        }
+        .resultado-contenido p {
+            margin-bottom: 10px;
         }
 
         .copiar-btn {
@@ -251,6 +282,7 @@
             display: none;
             z-index: 999;
         }
+        .toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
         /* ── Spinner ── */
         .spinner {
@@ -562,11 +594,10 @@
 
         function mostrarResultado(texto) {
             const contenedor = document.getElementById('texto-resultado');
-            // Renderizamos los ## como títulos visuales
-            const html = texto
-                .replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>')
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // Usamos marked.js para convertir el Markdown (con tablas) en HTML prolijo
+            const html = marked.parse(texto);
             contenedor.innerHTML = html;
+            
             document.getElementById('resultado-foja').style.display = 'block';
             contenedor.scrollTop = 0;
         }
