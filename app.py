@@ -826,6 +826,9 @@ def eliminar_doc():
 FOJAS_DIR = BASE_DIR / "fojas_tmp"
 FOJAS_DIR.mkdir(exist_ok=True)
 
+# Estado en memoria de análisis de fojas (job_id -> resultado)
+_estado_fojas = {}
+
 
 @app.route("/api/analizar_foja", methods=["POST"])
 def analizar_foja():
@@ -845,20 +848,36 @@ def analizar_foja():
         }), 400
 
     # Guardar temporalmente con extensión original para que bot_rag la detecte
-    nombre_tmp = "{}_{}".format(uuid.uuid4().hex, archivo.filename)
+    job_id     = uuid.uuid4().hex
+    nombre_tmp = f"{job_id}{ext}"
     ruta_tmp   = FOJAS_DIR / nombre_tmp
     archivo.save(ruta_tmp)
 
-    try:
-        resultado = analizar_foja_quirurgica(ruta_tmp)
-    finally:
-        # Eliminar el temporal después del análisis
-        try:
-            ruta_tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
+    _estado_fojas[job_id] = {"estado": "procesando"}
 
-    return jsonify(resultado)
+    def _analizar():
+        try:
+            resultado = analizar_foja_quirurgica(ruta_tmp)
+            _estado_fojas[job_id] = {"estado": "listo", **resultado}
+        except Exception as e:
+            _estado_fojas[job_id] = {"estado": "error", "ok": False, "error": str(e)}
+        finally:
+            try:
+                ruta_tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    threading.Thread(target=_analizar, daemon=True).start()
+
+    # Respuesta inmediata: el cliente hace polling con el job_id
+    return jsonify({"ok": True, "job_id": job_id, "estado": "procesando"})
+
+
+@app.route("/api/estado_foja/<job_id>")
+def estado_foja(job_id):
+    estado = _estado_fojas.get(job_id, {"estado": "no_encontrado"})
+    return jsonify(estado)
+
 
 
 # ============================================================

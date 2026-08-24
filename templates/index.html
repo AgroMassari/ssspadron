@@ -481,7 +481,7 @@
                 return;
             }
 
-            // Contador de segundos para que el usuario vea que está procesando
+            // Contador de segundos
             let seg = 0;
             const intervalo = setInterval(() => {
                 seg++;
@@ -496,33 +496,65 @@
             fd.append('foja', archivo);
 
             try {
-                // Timeout extendido a 90s porque GPT-4o Vision puede tardar ~30-50s
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 90000);
-
-                const res  = await fetch('/api/analizar_foja', {
-                    method: 'POST',
-                    body: fd,
-                    signal: controller.signal
-                });
-                clearTimeout(timer);
-
+                // 1. Enviar foja → respuesta inmediata con job_id
+                const res  = await fetch('/api/analizar_foja', { method: 'POST', body: fd });
                 const data = await res.json();
 
-                if (data.ok) {
-                    mostrarResultado(data.analisis);
-                    mostrarToast('✅ Análisis completado');
-                } else {
-                    mostrarToast('❌ ' + (data.error || 'Error en el análisis.'), false);
+                if (!data.ok || !data.job_id) {
+                    clearInterval(intervalo);
+                    mostrarToast('❌ ' + (data.error || 'Error al enviar la foja.'), false);
+                    btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
+                    btnAnalizar.disabled  = false;
+                    return;
                 }
+
+                mostrarToast('⏳ Foja recibida. Analizando con IA...', true);
+
+                // 2. Polling hasta que el resultado esté listo
+                const jobId = data.job_id;
+                let intentos = 0;
+                const maxIntentos = 40; // 40 * 4s = 160s máx
+
+                const poll = setInterval(async () => {
+                    intentos++;
+                    try {
+                        const estRes  = await fetch(`/api/estado_foja/${jobId}`);
+                        const estData = await estRes.json();
+
+                        if (estData.estado === 'listo') {
+                            clearInterval(poll);
+                            clearInterval(intervalo);
+                            if (estData.ok) {
+                                mostrarResultado(estData.analisis);
+                                mostrarToast('✅ Análisis completado');
+                            } else {
+                                mostrarToast('❌ ' + (estData.error || 'Error en el análisis.'), false);
+                            }
+                            btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
+                            btnAnalizar.disabled  = false;
+
+                        } else if (estData.estado === 'error') {
+                            clearInterval(poll);
+                            clearInterval(intervalo);
+                            mostrarToast('❌ ' + (estData.error || 'Error al analizar.'), false);
+                            btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
+                            btnAnalizar.disabled  = false;
+
+                        } else if (intentos >= maxIntentos) {
+                            clearInterval(poll);
+                            clearInterval(intervalo);
+                            mostrarToast('⏱️ El análisis tardó demasiado. Intentá con una imagen más pequeña.', false);
+                            btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
+                            btnAnalizar.disabled  = false;
+                        }
+                    } catch (e) {
+                        console.error('Error al chequear estado foja', e);
+                    }
+                }, 4000); // Check cada 4 segundos
+
             } catch (err) {
-                if (err.name === 'AbortError') {
-                    mostrarToast('⏱️ El análisis tardó demasiado. Intentá con una imagen más pequeña.', false);
-                } else {
-                    mostrarToast('❌ Error de conexión con el servidor.', false);
-                }
-            } finally {
                 clearInterval(intervalo);
+                mostrarToast('❌ Error de conexión con el servidor.', false);
                 btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
                 btnAnalizar.disabled  = false;
             }
