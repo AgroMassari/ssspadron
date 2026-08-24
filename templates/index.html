@@ -455,7 +455,14 @@
                 return;
             }
 
-            btnAnalizar.innerHTML = '<span class="spinner"></span> Analizando con IA...';
+            // Contador de segundos para que el usuario vea que está procesando
+            let seg = 0;
+            const intervalo = setInterval(() => {
+                seg++;
+                btnAnalizar.innerHTML = `<span class="spinner"></span> Analizando con IA... ${seg}s`;
+            }, 1000);
+
+            btnAnalizar.innerHTML = '<span class="spinner"></span> Analizando con IA... 0s';
             btnAnalizar.disabled  = true;
             document.getElementById('resultado-foja').style.display = 'none';
 
@@ -463,7 +470,17 @@
             fd.append('foja', archivo);
 
             try {
-                const res  = await fetch('/api/analizar_foja', { method: 'POST', body: fd });
+                // Timeout extendido a 90s porque GPT-4o Vision puede tardar ~30-50s
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 90000);
+
+                const res  = await fetch('/api/analizar_foja', {
+                    method: 'POST',
+                    body: fd,
+                    signal: controller.signal
+                });
+                clearTimeout(timer);
+
                 const data = await res.json();
 
                 if (data.ok) {
@@ -472,9 +489,14 @@
                 } else {
                     mostrarToast('❌ ' + (data.error || 'Error en el análisis.'), false);
                 }
-            } catch {
-                mostrarToast('❌ Error de conexión con el servidor.', false);
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    mostrarToast('⏱️ El análisis tardó demasiado. Intentá con una imagen más pequeña.', false);
+                } else {
+                    mostrarToast('❌ Error de conexión con el servidor.', false);
+                }
             } finally {
+                clearInterval(intervalo);
                 btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
                 btnAnalizar.disabled  = false;
             }

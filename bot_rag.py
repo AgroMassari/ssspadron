@@ -274,7 +274,20 @@ Estructurá tu respuesta así:
 
 
 def _obtener_contexto_rag() -> str:
-    """Recupera los fragmentos de nomencladores más relevantes para cirugía."""
+    """Recupera fragmentos de nomencladores relevantes para cirugía.
+    Si no hay documentos cargados, devuelve string vacío sin tocar ChromaDB.
+    """
+    # Si no hay documentos, no intentamos tocar ChromaDB (evita errores de colección vacía)
+    extensiones = {".pdf", ".txt", ".docx", ".doc", ".xlsx", ".xls"}
+    hay_docs = any(
+        f.suffix.lower() in extensiones
+        for f in DOCS_DIR.iterdir()
+        if f.is_file()
+    ) if DOCS_DIR.exists() else False
+
+    if not hay_docs:
+        return ""  # Sin contexto: GPT usará su conocimiento general
+
     try:
         retriever  = _obtener_vectorstore().as_retriever(
             search_type="similarity", search_kwargs={"k": 8}
@@ -283,13 +296,10 @@ def _obtener_contexto_rag() -> str:
             "códigos facturación cirugía quirúrgico procedimiento nomenclador honorarios"
         )
         contexto = "\n\n".join(f.page_content for f in fragmentos)
-        return contexto or (
-            "No se encontraron documentos de referencia. "
-            "Cargá nomencladores e instructivos desde el panel."
-        )
+        return contexto
     except Exception as e:
-        logger.error("Error al recuperar contexto RAG: %s", e)
-        return "No se encontraron documentos de referencia cargados en el sistema."
+        logger.warning("No se pudo recuperar contexto RAG (omitido): %s", e)
+        return ""
 
 
 def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> dict:
@@ -306,7 +316,22 @@ def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> 
 
     client    = OpenAI(api_key=api_key)
     b64_image = base64.b64encode(imagen_bytes).decode("utf-8")
-    prompt    = PROMPT_FOJA_VISION.format(context=contexto)
+
+    # Sección de contexto solo si hay documentos cargados
+    if contexto.strip():
+        seccion_contexto = (
+            "Tenés acceso al siguiente contexto de nomencladores e instructivos de facturación:\n"
+            "---\n"
+            f"{contexto}\n"
+            "---\n\n"
+        )
+    else:
+        seccion_contexto = (
+            "No hay nomencladores específicos cargados. Usá tu conocimiento general "
+            "sobre nomencladores médicos argentinos (NOMIVAC, PMO, AAM, etc.).\n\n"
+        )
+
+    prompt = PROMPT_FOJA_VISION.format(context=seccion_contexto)
 
     try:
         respuesta = client.chat.completions.create(
@@ -320,13 +345,14 @@ def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> 
                             "type": "image_url",
                             "image_url": {
                                 "url": f"data:{mime_type};base64,{b64_image}",
-                                "detail": "high",
+                                "detail": "auto",   # auto = más rápido, evita timeouts
                             },
                         },
                     ],
                 }
             ],
             max_tokens=2000,
+            timeout=55,   # 55 seg (Render free corta a 60s)
         )
         return {"ok": True, "analisis": respuesta.choices[0].message.content}
     except Exception as e:
