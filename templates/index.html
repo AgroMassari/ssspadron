@@ -218,19 +218,21 @@
             border-collapse: collapse;
             margin: 15px 0;
             background: rgba(0,0,0,0.15);
-            border-radius: 8px;
-            overflow: hidden;
             font-size: 0.9rem;
+            display: block;
+            overflow-x: auto;
+            white-space: nowrap;
         }
         .resultado-contenido th {
             background: rgba(255,255,255,0.08);
             color: #fff;
-            padding: 12px;
+            padding: 12px 16px;
             text-align: left;
             border-bottom: 1px solid var(--border);
+            font-weight: 600;
         }
         .resultado-contenido td {
-            padding: 10px 12px;
+            padding: 10px 16px;
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
         .resultado-contenido tr:last-child td {
