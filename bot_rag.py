@@ -234,7 +234,8 @@ Se te proporciona:
   2. PROHIBIDO inventar códigos, PROHIBIDO usar tu conocimiento previo de nomencladores.
   3. Si un procedimiento NO está en el nomenclador adjunto, escribí: "❌ SIN CÓDIGO EN EL NOMENCLADOR"
   4. El precio/valor que reportes DEBE ser el que figura en el nomenclador adjunto, textual.
-  5. Nunca digas "verificá el código" ni "ajustá según políticas" — vos tenés el nomenclador completo.
+  5. NUNCA adivines. Debes cruzar EXHAUSTIVAMENTE absolutamente TODO lo que encuentres en la foja (materiales, procedimientos, descartables, etc.) con TODAS las reglas estipuladas en los instructivos adjuntos.
+  6. Nunca digas "verificá el código" ni "ajustá según políticas" — vos tenés el nomenclador completo.
 
 Estructura tu respuesta:
 
@@ -247,10 +248,10 @@ Estructura tu respuesta:
 [una fila por procedimiento]
 
 ## Materiales / Descartables facturables
-[Cruzá los materiales y descartables mencionados en la foja con las reglas del instructivo sobre qué se factura y qué no. LISTÁ EXPLÍCITAMENTE los que SÍ se pueden facturar según la norma. Si la foja menciona algo que el instructivo prohíbe facturar, aclaralo brevemente.]
+[Cruzá los materiales y descartables de la foja con las reglas del instructivo. LISTÁ EXPLÍCITAMENTE los que SÍ se pueden facturar. Si la foja menciona algo que el instructivo prohíbe facturar, aclaralo.]
 
-## Reglas especiales aplicadas
-[explicar aquí en detalle si hubo reducción por acto múltiple u otra regla, citando la regla del instructivo y detallando qué porcentaje (ej. 100%, 50%, 25%) le corresponde a cada procedimiento según la resolución]
+## Análisis exhaustivo de reglas del instructivo
+[Revisá TODO lo que dice la foja contra TODAS las normas del instructivo. Explicá en detalle cualquier regla aplicada (acto múltiple, honorarios, topes, etc.), qué porcentaje aplica, o cualquier restricción detectada.]
 
 ## Resumen listo para presentar
 [texto limpio para entregar a la obra social con los importes finales ya calculados y los porcentajes detallados]
@@ -275,7 +276,8 @@ Se te adjunta a continuación el NOMENCLADOR OFICIAL completo y las reglas (inst
   3. Si un procedimiento NO está en el nomenclador adjunto, escribí: "❌ SIN CÓDIGO EN EL NOMENCLADOR"
   4. El precio/valor que reportes DEBE ser el que figura en el nomenclador adjunto.
   5. Aplicá SIEMPRE las reglas de los instructivos adjuntos (ej: reducción por acto múltiple) cuando haya más de un código en la foja.
-  6. Nunca digas "verificá el código" — vos tenés el nomenclador completo.
+  6. NUNCA adivines. Debes cruzar EXHAUSTIVAMENTE absolutamente TODO lo que encuentres en la foja (materiales, procedimientos, descartables, estudios) con TODAS las reglas estipuladas en los instructivos adjuntos.
+  7. Nunca digas "verificá el código" — vos tenés el nomenclador completo.
 
 Estructura tu respuesta:
 
@@ -288,10 +290,10 @@ Estructura tu respuesta:
 [una fila por procedimiento]
 
 ## Materiales / Descartables facturables
-[Cruzá los materiales y descartables mencionados en la foja con las reglas del instructivo sobre qué se factura y qué no. LISTÁ EXPLÍCITAMENTE los que SÍ se pueden facturar según la norma. Si la foja menciona algo que el instructivo prohíbe facturar, aclaralo brevemente.]
+[Cruzá los materiales y descartables de la foja con las reglas del instructivo. LISTÁ EXPLÍCITAMENTE los que SÍ se pueden facturar. Si la foja menciona algo que el instructivo prohíbe facturar, aclaralo.]
 
-## Reglas especiales aplicadas
-[explicar aquí en detalle si hubo reducción por acto múltiple u otra regla, citando la regla del instructivo y detallando qué porcentaje (ej. 100%, 50%, 25%) le corresponde a cada procedimiento según la resolución]
+## Análisis exhaustivo de reglas del instructivo
+[Revisá TODO lo que dice la foja contra TODAS las normas del instructivo. Explicá en detalle cualquier regla aplicada (acto múltiple, honorarios, topes, etc.), qué porcentaje aplica, o cualquier restricción detectada.]
 
 ## Resumen listo para presentar
 [texto limpio para entregar a la obra social con los importes finales ya calculados y los porcentajes detallados]
