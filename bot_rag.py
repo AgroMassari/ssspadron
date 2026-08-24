@@ -242,18 +242,18 @@ Estructura tu respuesta:
 [listado de procedimientos leídos en la foja]
 
 ## Codificación según el nomenclador
-| Procedimiento | Código | Descripción en nomenclador | Valor |
-|---|---|---|---|
+| Procedimiento | Código | Descripción en nomenclador | Valor Base | % Aplicado | Valor Final |
+|---|---|---|---|---|---|
 [una fila por procedimiento]
 
 ## Materiales / Gastos adicionales facturables
 [si aplica según instructivos]
 
-## Reglas especiales (acto múltiple, etc.)
-[si aplica]
+## Reglas especiales aplicadas
+[explicar aquí en detalle si hubo reducción por acto múltiple u otra regla, citando la regla del instructivo y detallando qué porcentaje (ej. 100%, 50%, 25%) le corresponde a cada procedimiento según la resolución]
 
 ## Resumen listo para presentar
-[texto limpio para entregar a la obra social]
+[texto limpio para entregar a la obra social con los importes finales ya calculados y los porcentajes detallados]
 
 ---
 === NOMENCLADOR CARGADO EN EL SISTEMA ===
@@ -283,18 +283,18 @@ Estructura tu respuesta:
 [listado detallado de procedimientos leídos en la imagen]
 
 ## Codificación según el nomenclador
-| Procedimiento | Código | Descripción en nomenclador | Valor |
-|---|---|---|---|
+| Procedimiento | Código | Descripción en nomenclador | Valor Base | % Aplicado | Valor Final |
+|---|---|---|---|---|---|
 [una fila por procedimiento]
 
 ## Materiales / Gastos adicionales facturables
 [si aplica según instructivos adjuntos]
 
 ## Reglas especiales aplicadas
-[explicar aquí si hubo reducción por acto múltiple u otra regla, y hacer el cálculo]
+[explicar aquí en detalle si hubo reducción por acto múltiple u otra regla, citando la regla del instructivo y detallando qué porcentaje (ej. 100%, 50%, 25%) le corresponde a cada procedimiento según la resolución]
 
 ## Resumen listo para presentar
-[texto limpio para entregar a la obra social con los importes finales ya calculados]
+[texto limpio para entregar a la obra social con los importes finales ya calculados y los porcentajes detallados]
 
 ---
 === INICIO DE NOMENCLADORES E INSTRUCTIVOS CARGADOS ===
