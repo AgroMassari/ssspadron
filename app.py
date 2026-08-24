@@ -697,8 +697,9 @@ def webhook_recibir():
 
 
 # ============================================================
-# SUBIR DOCUMENTO AL BOT
-# ============================================================
+# Estado de indexado en memoria
+_estado_indexado = {}
+
 
 @app.route("/api/upload_docs", methods=["POST"])
 def upload_documento():
@@ -720,13 +721,31 @@ def upload_documento():
     destino = DOCS_DIR / archivo.filename
     archivo.save(destino)
 
-    fragmentos = agregar_documento_a_base(destino)
+    nombre = archivo.filename
+    _estado_indexado[nombre] = {"estado": "procesando", "fragmentos": 0}
 
+    # Indexar en segundo plano para no bloquear la respuesta HTTP
+    def _indexar():
+        try:
+            n = agregar_documento_a_base(destino)
+            _estado_indexado[nombre] = {"estado": "listo", "fragmentos": n}
+        except Exception as e:
+            _estado_indexado[nombre] = {"estado": "error", "error": str(e)}
+
+    threading.Thread(target=_indexar, daemon=True).start()
+
+    # Respuesta inmediata — el cliente puede consultar /api/estado_indexado/<nombre>
     return jsonify({
-        "ok":         True,
-        "nombre":     archivo.filename,
-        "fragmentos": fragmentos,
+        "ok":      True,
+        "nombre":  nombre,
+        "mensaje": "Archivo recibido. Indexando en segundo plano...",
     })
+
+
+@app.route("/api/estado_indexado/<nombre>")
+def estado_indexado(nombre):
+    estado = _estado_indexado.get(nombre, {"estado": "desconocido"})
+    return jsonify(estado)
 
 
 # ============================================================

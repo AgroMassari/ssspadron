@@ -540,27 +540,55 @@
             const archivo = inputDoc.files[0];
             if (!archivo) { mostrarToast('⚠️ Seleccioná un archivo primero.', false); return; }
 
-            btnSubir.innerHTML = '<span class="spinner"></span> Subiendo...';
+            btnSubir.innerHTML = '<span class="spinner"></span> Subiendo e indexando...';
             btnSubir.disabled  = true;
 
             const fd = new FormData();
             fd.append('documento', archivo);
 
             try {
+                // 1. Subir archivo (devuelve casi inmediato)
                 const res  = await fetch('/api/upload_docs', { method: 'POST', body: fd });
                 const data = await res.json();
 
-                if (data.ok) {
-                    mostrarToast(`✅ "${data.nombre}" indexado (${data.fragmentos} fragmentos)`);
-                    inputDoc.value = '';
-                    document.getElementById('nombre-doc').textContent = 'Ningún archivo seleccionado';
-                    cargarListaDocs();
-                } else {
+                if (!data.ok) {
                     mostrarToast('❌ ' + (data.error || 'Error al subir.'), false);
+                    btnSubir.innerHTML = '⬆️ CARGAR AL BOT';
+                    btnSubir.disabled  = false;
+                    return;
                 }
+
+                mostrarToast('⏳ Subido. Indexando documento...', true);
+
+                // 2. Polling de estado
+                const nombreArchivo = data.nombre;
+                const checkInterval = setInterval(async () => {
+                    try {
+                        const estRes = await fetch(`/api/estado_indexado/${encodeURIComponent(nombreArchivo)}`);
+                        const estData = await estRes.json();
+
+                        if (estData.estado === 'listo') {
+                            clearInterval(checkInterval);
+                            mostrarToast(`✅ "${nombreArchivo}" indexado (${estData.fragmentos} fragmentos)`);
+                            inputDoc.value = '';
+                            document.getElementById('nombre-doc').textContent = 'Ningún archivo seleccionado';
+                            cargarListaDocs();
+                            btnSubir.innerHTML = '⬆️ CARGAR AL BOT';
+                            btnSubir.disabled  = false;
+                        } else if (estData.estado === 'error') {
+                            clearInterval(checkInterval);
+                            mostrarToast(`❌ Error al indexar: ${estData.error}`, false);
+                            btnSubir.innerHTML = '⬆️ CARGAR AL BOT';
+                            btnSubir.disabled  = false;
+                        }
+                        // Si es "procesando" sigue esperando...
+                    } catch (e) {
+                        console.error('Error al chequear estado', e);
+                    }
+                }, 3000); // Check cada 3 segundos
+
             } catch {
                 mostrarToast('❌ Error de conexión.', false);
-            } finally {
                 btnSubir.innerHTML = '⬆️ CARGAR AL BOT';
                 btnSubir.disabled  = false;
             }
