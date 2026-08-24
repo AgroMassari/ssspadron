@@ -2,161 +2,591 @@
 <html lang="es">
 
 <head>
-
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>Verificador SSSALUD</title>
+    <title>Panel SSSALUD + Bot WhatsApp</title>
+    <meta name="description" content="Panel de control para verificación SSSALUD, análisis de fojas quirúrgicas y gestión del bot de WhatsApp con IA.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        * {
-            box-sizing: border-box;
+        :root {
+            --bg:        #0f1117;
+            --surface:   #1a1d27;
+            --surface2:  #22263a;
+            --border:    #2e3348;
+            --accent:    #6c63ff;
+            --green:     #25d366;
+            --orange:    #f59e0b;
+            --text:      #e8eaf0;
+            --muted:     #7c8099;
+            --radius:    14px;
+            --shadow:    0 8px 32px rgba(0,0,0,0.4);
         }
 
         body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: #f3f4f6;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
             min-height: 100vh;
+            padding: 32px 16px 60px;
+        }
+
+        h1.titulo-principal {
+            text-align: center;
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+        }
+
+        .subtitulo {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.95rem;
+            margin-bottom: 40px;
+        }
+
+        .panel {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 32px;
+            box-shadow: var(--shadow);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .card-icon {
+            font-size: 1.6rem;
+            width: 44px;
+            height: 44px;
             display: flex;
             align-items: center;
             justify-content: center;
+            border-radius: 10px;
+            flex-shrink: 0;
         }
 
-        .contenedor {
-            width: 100%;
-            max-width: 650px;
-            padding: 20px;
-        }
+        .icon-purple { background: rgba(108,99,255,0.15); }
+        .icon-green  { background: rgba(37,211,102,0.15); }
+        .icon-orange { background: rgba(245,158,11,0.15); }
 
-        .card {
-            background: white;
-            border-radius: 16px;
-            padding: 40px;
-            box-shadow: 0 10px 35px rgba(0,0,0,0.10);
+        .card-title { font-size: 1.1rem; font-weight: 600; }
+        .card-desc  { font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
+
+        /* ── Zona drag ── */
+        .zona-drop {
+            display: block;
+            border: 2px dashed var(--border);
+            border-radius: 10px;
+            padding: 28px 20px;
             text-align: center;
+            background: var(--surface2);
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            margin-bottom: 16px;
         }
 
-        h1 {
-            margin-top: 0;
-            margin-bottom: 10px;
-            color: #111827;
-        }
+        .zona-drop:hover        { border-color: var(--accent);  background: rgba(108,99,255,0.06); }
+        .zona-drop.verde:hover  { border-color: var(--green);   background: rgba(37,211,102,0.06); }
+        .zona-drop.naranja:hover{ border-color: var(--orange);  background: rgba(245,158,11,0.06); }
 
-        .descripcion {
-            color: #6b7280;
-            margin-bottom: 30px;
-        }
+        .zona-icono { font-size: 2.2rem; margin-bottom: 10px; }
+        .zona-texto { font-size: 0.9rem; color: var(--muted); }
 
-        .zona {
-            border: 2px dashed #9ca3af;
-            border-radius: 12px;
-            padding: 40px 20px;
-            margin-bottom: 25px;
-            background: #f9fafb;
-        }
+        input[type="file"] { display: none; }
 
-        .icono {
-            font-size: 48px;
-            margin-bottom: 15px;
-        }
-
-        input[type="file"] {
-            margin-top: 15px;
+        /* ── Botones ── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
             width: 100%;
-        }
-
-        button {
-            width: 100%;
-            padding: 15px;
+            padding: 14px 20px;
             border: none;
             border-radius: 10px;
-            background: #111827;
-            color: white;
-            font-size: 17px;
-            font-weight: bold;
+            font-size: 1rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
             cursor: pointer;
+            transition: opacity 0.2s, transform 0.15s;
         }
 
-        button:hover {
-            background: #1f2937;
+        .btn:active  { transform: scale(0.98); }
+        .btn:hover   { opacity: 0.88; }
+        .btn:disabled{ opacity: 0.55; cursor: not-allowed; }
+
+        .btn-purple { background: linear-gradient(135deg, #6c63ff, #8a7fff); color: white; }
+        .btn-green  { background: linear-gradient(135deg, #25d366, #1da854); color: white; }
+        .btn-orange { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+
+        /* ── Nombre archivo ── */
+        .archivo-nombre {
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-top: -8px;
+            margin-bottom: 14px;
+            min-height: 20px;
         }
 
-        .info {
-            margin-top: 25px;
-            font-size: 14px;
-            color: #6b7280;
-            line-height: 1.6;
+        /* ── Lista documentos ── */
+        #lista-docs { margin-top: 20px; }
+
+        .doc-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 8px;
+            font-size: 0.88rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .doc-nombre { font-weight: 500; }
+        .doc-size   { color: var(--muted); font-size: 0.82rem; }
+        .doc-badge  {
+            background: rgba(37,211,102,0.15);
+            color: var(--green);
+            border-radius: 20px;
+            padding: 3px 10px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        /* ── Resultado análisis ── */
+        #resultado-foja {
+            margin-top: 24px;
+            display: none;
+        }
+
+        .resultado-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .resultado-titulo {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--orange);
+        }
+
+        .resultado-contenido {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px 24px;
+            font-size: 0.9rem;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 550px;
+            overflow-y: auto;
+        }
+
+        /* Estilo para los ## del markdown */
+        .resultado-contenido h2,
+        .md-h2 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--orange);
+            margin: 16px 0 8px;
+        }
+
+        .copiar-btn {
+            margin-top: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--muted);
+            font-size: 0.82rem;
+            font-family: 'Inter', sans-serif;
+            padding: 7px 14px;
+            cursor: pointer;
+            transition: color 0.2s, border-color 0.2s;
+            width: auto;
+        }
+
+        .copiar-btn:hover { color: var(--text); border-color: var(--text); }
+
+        /* ── Toast ── */
+        #toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #1e2a20;
+            border: 1px solid var(--green);
+            color: var(--green);
+            border-radius: 10px;
+            padding: 14px 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: none;
+            z-index: 999;
+        }
+
+        /* ── Spinner ── */
+        .spinner {
+            display: inline-block;
+            width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin    { to { transform: rotate(360deg); } }
+        @keyframes fadeIn  {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ── Scrollbar personalizado ── */
+        .resultado-contenido::-webkit-scrollbar { width: 6px; }
+        .resultado-contenido::-webkit-scrollbar-track { background: var(--surface2); }
+        .resultado-contenido::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        /* ── Badge de estado ── */
+        .badge-analizando {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(245,158,11,0.1);
+            color: var(--orange);
+            border: 1px solid rgba(245,158,11,0.3);
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 0.88rem;
+            font-weight: 500;
+            margin-top: 16px;
         }
 
     </style>
-
 </head>
 
 <body>
 
-<div class="contenedor">
+    <h1 class="titulo-principal">🏥 Panel SSSalud</h1>
+    <p class="subtitulo">Verificador de cobertura · Fojas Quirúrgicas · Bot WhatsApp con IA</p>
 
-    <div class="card">
+    <div class="panel">
 
-        <h1>Verificador SSSALUD</h1>
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- CARD 1: Verificador SSSALUD                       -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div class="card">
 
-        <div class="descripcion">
-            Verificación automática de cobertura por DNI
-        </div>
-
-        <form
-            action="/procesar"
-            method="POST"
-            enctype="multipart/form-data"
-        >
-
-            <div class="zona">
-
-                <div class="icono">
-                    📊
+            <div class="card-header">
+                <div class="card-icon icon-purple">📊</div>
+                <div>
+                    <div class="card-title">Verificador SSSALUD</div>
+                    <div class="card-desc">Consulta automática de cobertura por DNI desde un Excel</div>
                 </div>
-
-                <strong>
-                    Seleccioná el archivo Excel
-                </strong>
-
-                <br>
-
-                <input
-                    type="file"
-                    name="archivo"
-                    accept=".xlsx"
-                    required
-                >
-
             </div>
 
-            <button type="submit">
-                🔎 INICIAR VERIFICACIÓN
+            <form id="form-sssalud" action="/procesar" method="POST" enctype="multipart/form-data">
+
+                <label for="archivo-sss" id="zona-sss" class="zona-drop">
+                    <div class="zona-icono">📁</div>
+                    <div class="zona-texto">
+                        <strong style="color: var(--text);">Seleccioná o arrastrá el archivo Excel</strong><br>
+                        Solo archivos .xlsx
+                    </div>
+                </label>
+                <input type="file" id="archivo-sss" name="archivo" accept=".xlsx" required>
+                <p class="archivo-nombre" id="nombre-sss">Ningún archivo seleccionado</p>
+
+                <button type="submit" class="btn btn-purple" id="btn-sss">
+                    🔎 INICIAR VERIFICACIÓN
+                </button>
+
+            </form>
+
+        </div>
+
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- CARD 2: Análisis de Fojas Quirúrgicas             -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div class="card">
+
+            <div class="card-header">
+                <div class="card-icon icon-orange">🔬</div>
+                <div>
+                    <div class="card-title">Análisis de Fojas Quirúrgicas</div>
+                    <div class="card-desc">Subí el PDF o foto de la foja y la IA te dice qué códigos de facturación corresponden</div>
+                </div>
+            </div>
+
+            <label for="archivo-foja" id="zona-foja" class="zona-drop naranja">
+                <div class="zona-icono">🗂️</div>
+                <div class="zona-texto">
+                    <strong style="color: var(--text);">Seleccioná la foja quirúrgica (PDF o Imagen)</strong><br>
+                    El sistema la analizará contra los nomencladores e instructivos cargados
+                </div>
+            </label>
+            <input type="file" id="archivo-foja" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif">
+            <p class="archivo-nombre" id="nombre-foja">Ningún archivo seleccionado</p>
+
+            <button class="btn btn-orange" id="btn-analizar">
+                🔬 ANALIZAR FOJA
             </button>
 
-        </form>
+            <!-- Resultado del análisis -->
+            <div id="resultado-foja">
+                <div class="resultado-header">
+                    <span style="font-size:1.2rem">📋</span>
+                    <div class="resultado-titulo">Resultado del análisis</div>
+                </div>
+                <div class="resultado-contenido" id="texto-resultado"></div>
+                <button class="copiar-btn" id="btn-copiar" onclick="copiarResultado()">
+                    📋 Copiar resultado
+                </button>
+            </div>
 
-        <div class="info">
+        </div>
 
-            El sistema consultará los DNI pendientes
-            en SSSALUD y completará la columna
-            de Obra Social.
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- CARD 3: Bot WhatsApp – gestión de documentos      -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div class="card">
 
-            <br><br>
+            <div class="card-header">
+                <div class="card-icon icon-green">🤖</div>
+                <div>
+                    <div class="card-title">Bot WhatsApp con IA – Documentos de referencia</div>
+                    <div class="card-desc">Subí los nomencladores e instructivos que usará el bot para responder</div>
+                </div>
+            </div>
 
-            Las filas que ya tengan información
-            no serán consultadas nuevamente.
+            <label for="archivo-doc" id="zona-doc" class="zona-drop verde">
+                <div class="zona-icono">📄</div>
+                <div class="zona-texto">
+                    <strong style="color: var(--text);">Subir nomenclador, instructivo o manual</strong><br>
+                    PDF, TXT, DOCX o Excel
+                </div>
+            </label>
+            <input type="file" id="archivo-doc" accept=".pdf,.txt,.docx,.doc,.xlsx,.xls">
+            <p class="archivo-nombre" id="nombre-doc">Ningún archivo seleccionado</p>
+
+            <button class="btn btn-green" id="btn-subir">
+                ⬆️ CARGAR AL BOT
+            </button>
+
+            <div id="lista-docs">
+                <div style="color: var(--muted); font-size: 0.85rem; margin-top: 12px;">
+                    Cargando documentos...
+                </div>
+            </div>
 
         </div>
 
     </div>
 
-</div>
+    <div id="toast"></div>
+
+    <script>
+
+        // ══════════════════════════════════════════════════════
+        // CARD 1 – Verificador SSSALUD
+        // ══════════════════════════════════════════════════════
+
+        const inputSss = document.getElementById('archivo-sss');
+        const btnSss   = document.getElementById('btn-sss');
+
+        inputSss.addEventListener('change', () => {
+            document.getElementById('nombre-sss').textContent =
+                inputSss.files[0] ? inputSss.files[0].name : 'Ningún archivo seleccionado';
+        });
+
+        document.getElementById('zona-sss').addEventListener('click', () => inputSss.click());
+
+        document.getElementById('form-sssalud').addEventListener('submit', () => {
+            btnSss.innerHTML = '<span class="spinner"></span> Procesando...';
+            btnSss.disabled  = true;
+        });
+
+        // ══════════════════════════════════════════════════════
+        // CARD 2 – Análisis de Fojas Quirúrgicas
+        // ══════════════════════════════════════════════════════
+
+        const inputFoja  = document.getElementById('archivo-foja');
+        const btnAnalizar = document.getElementById('btn-analizar');
+
+        inputFoja.addEventListener('change', () => {
+            document.getElementById('nombre-foja').textContent =
+                inputFoja.files[0] ? inputFoja.files[0].name : 'Ningún archivo seleccionado';
+            // Ocultar resultado anterior si cambia el archivo
+            document.getElementById('resultado-foja').style.display = 'none';
+        });
+
+        document.getElementById('zona-foja').addEventListener('click', () => inputFoja.click());
+
+        btnAnalizar.addEventListener('click', async () => {
+            const archivo = inputFoja.files[0];
+            if (!archivo) {
+                mostrarToast('⚠️ Seleccioná una foja quirúrgica (PDF o Imagen).', false);
+                return;
+            }
+
+            btnAnalizar.innerHTML = '<span class="spinner"></span> Analizando con IA...';
+            btnAnalizar.disabled  = true;
+            document.getElementById('resultado-foja').style.display = 'none';
+
+            const fd = new FormData();
+            fd.append('foja', archivo);
+
+            try {
+                const res  = await fetch('/api/analizar_foja', { method: 'POST', body: fd });
+                const data = await res.json();
+
+                if (data.ok) {
+                    mostrarResultado(data.analisis);
+                    mostrarToast('✅ Análisis completado');
+                } else {
+                    mostrarToast('❌ ' + (data.error || 'Error en el análisis.'), false);
+                }
+            } catch {
+                mostrarToast('❌ Error de conexión con el servidor.', false);
+            } finally {
+                btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
+                btnAnalizar.disabled  = false;
+            }
+        });
+
+        function mostrarResultado(texto) {
+            const contenedor = document.getElementById('texto-resultado');
+            // Renderizamos los ## como títulos visuales
+            const html = texto
+                .replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            contenedor.innerHTML = html;
+            document.getElementById('resultado-foja').style.display = 'block';
+            contenedor.scrollTop = 0;
+        }
+
+        function copiarResultado() {
+            const texto = document.getElementById('texto-resultado').innerText;
+            navigator.clipboard.writeText(texto).then(() => {
+                mostrarToast('📋 Copiado al portapapeles');
+            }).catch(() => {
+                mostrarToast('No se pudo copiar.', false);
+            });
+        }
+
+        // ══════════════════════════════════════════════════════
+        // CARD 3 – Bot WhatsApp – documentos
+        // ══════════════════════════════════════════════════════
+
+        const inputDoc = document.getElementById('archivo-doc');
+        const btnSubir = document.getElementById('btn-subir');
+
+        inputDoc.addEventListener('change', () => {
+            document.getElementById('nombre-doc').textContent =
+                inputDoc.files[0] ? inputDoc.files[0].name : 'Ningún archivo seleccionado';
+        });
+
+        document.getElementById('zona-doc').addEventListener('click', () => inputDoc.click());
+
+        btnSubir.addEventListener('click', async () => {
+            const archivo = inputDoc.files[0];
+            if (!archivo) { mostrarToast('⚠️ Seleccioná un archivo primero.', false); return; }
+
+            btnSubir.innerHTML = '<span class="spinner"></span> Subiendo...';
+            btnSubir.disabled  = true;
+
+            const fd = new FormData();
+            fd.append('documento', archivo);
+
+            try {
+                const res  = await fetch('/api/upload_docs', { method: 'POST', body: fd });
+                const data = await res.json();
+
+                if (data.ok) {
+                    mostrarToast(`✅ "${data.nombre}" indexado (${data.fragmentos} fragmentos)`);
+                    inputDoc.value = '';
+                    document.getElementById('nombre-doc').textContent = 'Ningún archivo seleccionado';
+                    cargarListaDocs();
+                } else {
+                    mostrarToast('❌ ' + (data.error || 'Error al subir.'), false);
+                }
+            } catch {
+                mostrarToast('❌ Error de conexión.', false);
+            } finally {
+                btnSubir.innerHTML = '⬆️ CARGAR AL BOT';
+                btnSubir.disabled  = false;
+            }
+        });
+
+        async function cargarListaDocs() {
+            const cont = document.getElementById('lista-docs');
+            try {
+                const docs = await (await fetch('/api/docs')).json();
+                if (!docs.length) {
+                    cont.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;margin-top:12px;">No hay documentos cargados todavía. Subí al menos un nomenclador o instructivo.</p>';
+                    return;
+                }
+                cont.innerHTML =
+                    '<p style="color:var(--muted);font-size:0.8rem;margin:16px 0 8px;">Documentos disponibles para el bot y el análisis de fojas:</p>' +
+                    docs.map(d => `
+                        <div class="doc-item">
+                            <div>
+                                <div class="doc-nombre">📎 ${d.nombre}</div>
+                                <div class="doc-size">${d.tamaño_kb} KB</div>
+                            </div>
+                            <span class="doc-badge">✓ Indexado</span>
+                        </div>
+                    `).join('');
+            } catch {
+                cont.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;margin-top:12px;">No se pudo cargar la lista.</p>';
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // Toast de notificación
+        // ══════════════════════════════════════════════════════
+
+        function mostrarToast(msg, ok = true) {
+            const t = document.getElementById('toast');
+            t.textContent       = msg;
+            t.style.display     = 'block';
+            t.style.color       = ok ? 'var(--green)' : '#ff6b6b';
+            t.style.borderColor = ok ? 'var(--green)' : '#ff6b6b';
+            t.style.background  = ok ? '#1e2a20'      : '#2a1e1e';
+            clearTimeout(t._t);
+            t._t = setTimeout(() => t.style.display = 'none', 4500);
+        }
+
+        // Cargar lista al iniciar
+        cargarListaDocs();
+
+    </script>
 
 </body>
-
 </html>

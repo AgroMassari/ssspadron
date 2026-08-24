@@ -1,4 +1,4 @@
-﻿beautifulsoup4==4.15.0
+beautifulsoup4==4.15.0
 blinker==1.9.0
 certifi==2026.7.22
 charset-normalizer==3.5.1
@@ -22,3 +22,9 @@ typing_extensions==4.16.0
 urllib3==2.7.0
 webencodings==0.6.1
 Werkzeug==3.1.8
+langchain
+langchain-openai
+langchain-community
+chromadb
+PyMuPDF
+tiktoken

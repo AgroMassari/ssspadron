@@ -7,7 +7,37 @@ from pathlib import Path
 import openpyxl
 from flask import Flask, request, render_template, send_file, jsonify
 
+# ── Módulos del bot de IA (opcionales: requieren pip install -r requirements.txt) ──
+try:
+    from bot_rag import (
+        responder,
+        agregar_documento_a_base,
+        listar_documentos,
+        analizar_foja_quirurgica,
+        DOCS_DIR,
+    )
+    from whatsapp_api import verificar_webhook, extraer_mensaje, enviar_texto
+    BOT_DISPONIBLE = True
+except ImportError as _e:
+    BOT_DISPONIBLE = False
+    _bot_error = (
+        "El módulo de IA no está disponible. "
+        "Ejecutá: pip install -r requirements.txt\n"
+        f"Detalle: {_e}"
+    )
+    # Funciones vacías para que los endpoints no exploten
+    def responder(p):              return _bot_error
+    def agregar_documento_a_base(r): return 0
+    def listar_documentos():       return []
+    def analizar_foja_quirurgica(r): return {"ok": False, "error": _bot_error}
+    def verificar_webhook(a):      return "Bot no disponible", 503
+    def extraer_mensaje(p):        return None
+    def enviar_texto(n, t):        return False
+    DOCS_DIR = Path(__file__).resolve().parent / "documentos"
+    DOCS_DIR.mkdir(exist_ok=True)
+
 from sss_beneficiarios_hospitales.data import DataBeneficiariosSSSHospital
+
 
 
 # ============================================================
@@ -625,6 +655,129 @@ def descargar(nombre):
         archivo,
         as_attachment=True
     )
+
+
+# ============================================================
+# WEBHOOK WHATSAPP — VERIFICACIÓN (GET)
+# ============================================================
+
+@app.route("/webhook", methods=["GET"])
+def webhook_verificar():
+
+    challenge, status = verificar_webhook(request.args)
+    return challenge, status
+
+
+# ============================================================
+# WEBHOOK WHATSAPP — MENSAJES ENTRANTES (POST)
+# ============================================================
+
+@app.route("/webhook", methods=["POST"])
+def webhook_recibir():
+
+    payload = request.get_json(silent=True) or {}
+
+    mensaje = extraer_mensaje(payload)
+
+    if mensaje:
+
+        numero = mensaje["numero"]
+        texto  = mensaje["texto"]
+
+        # Procesamos en hilo separado para no bloquear la respuesta a Meta
+        def responder_async():
+            respuesta = responder(texto)
+            enviar_texto(numero, respuesta)
+
+        hilo = threading.Thread(target=responder_async, daemon=True)
+        hilo.start()
+
+    # Meta requiere siempre un 200 rápido
+    return jsonify({"status": "ok"}), 200
+
+
+# ============================================================
+# SUBIR DOCUMENTO AL BOT
+# ============================================================
+
+@app.route("/api/upload_docs", methods=["POST"])
+def upload_documento():
+
+    archivo = request.files.get("documento")
+
+    if not archivo or archivo.filename == "":
+        return jsonify({"ok": False, "error": "No se recibió ningún archivo."}), 400
+
+    extensiones_permitidas = {".pdf", ".txt", ".docx", ".doc", ".xlsx", ".xls"}
+    ext = Path(archivo.filename).suffix.lower()
+
+    if ext not in extensiones_permitidas:
+        return jsonify({
+            "ok": False,
+            "error": "Formato no permitido. Usá: PDF, TXT, DOCX o XLSX."
+        }), 400
+
+    destino = DOCS_DIR / archivo.filename
+    archivo.save(destino)
+
+    fragmentos = agregar_documento_a_base(destino)
+
+    return jsonify({
+        "ok":         True,
+        "nombre":     archivo.filename,
+        "fragmentos": fragmentos,
+    })
+
+
+# ============================================================
+# LISTAR DOCUMENTOS DEL BOT
+# ============================================================
+
+@app.route("/api/docs", methods=["GET"])
+def listar_docs():
+    return jsonify(listar_documentos())
+
+
+# ============================================================
+# ANÁLISIS DE FOJA QUIRÚRGICA
+# ============================================================
+
+FOJAS_DIR = BASE_DIR / "fojas_tmp"
+FOJAS_DIR.mkdir(exist_ok=True)
+
+
+@app.route("/api/analizar_foja", methods=["POST"])
+def analizar_foja():
+
+    archivo = request.files.get("foja")
+
+    if not archivo or archivo.filename == "":
+        return jsonify({"ok": False, "error": "No se recibió ningún archivo."}), 400
+
+    EXTENSIONES_OK = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    ext = Path(archivo.filename).suffix.lower()
+
+    if ext not in EXTENSIONES_OK:
+        return jsonify({
+            "ok": False,
+            "error": "Formato no soportado. Usá PDF, JPG, PNG o WEBP."
+        }), 400
+
+    # Guardar temporalmente con extensión original para que bot_rag la detecte
+    nombre_tmp = "{}_{}".format(uuid.uuid4().hex, archivo.filename)
+    ruta_tmp   = FOJAS_DIR / nombre_tmp
+    archivo.save(ruta_tmp)
+
+    try:
+        resultado = analizar_foja_quirurgica(ruta_tmp)
+    finally:
+        # Eliminar el temporal después del análisis
+        try:
+            ruta_tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return jsonify(resultado)
 
 
 # ============================================================
