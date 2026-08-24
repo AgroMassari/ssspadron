@@ -259,10 +259,10 @@ Tenés acceso al siguiente contexto de nomencladores e instructivos de facturaci
 {context}
 ---
 
-Realizá el siguiente análisis:
+Realizá el siguiente análisis CODIFICANDO ESTRICTAMENTE EN BASE A LOS INSTRUCTIVOS Y NOMENCLADORES PROPORCIONADOS:
 1. Identificá los PROCEDIMIENTOS QUIRÚRGICOS realizados.
-2. Determiná el CÓDIGO de nomenclador para cada procedimiento (NOMIVAC, PMO, AAM u otro de los instructivos).
-3. Indicá la UNIDAD DE VALOR o MONTO si está disponible.
+2. Determiná el CÓDIGO de nomenclador para cada procedimiento (utilizando únicamente los instructivos y nomencladores en contexto).
+3. Indicá la UNIDAD DE VALOR o MONTO si está disponible en el nomenclador.
 4. Señalá MATERIALES o GASTOS ADICIONALES facturables (prótesis, descartables, etc.).
 5. Indicá REGLAS ESPECIALES (reducción por acto múltiple, códigos complementarios, etc.).
 6. Si algo no está claro o sin código asignado, decilo explícitamente.
