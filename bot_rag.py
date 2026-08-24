@@ -214,105 +214,139 @@ def responder(pregunta: str) -> str:
 # ============================================================
 
 PROMPT_FOJA_TEXTO = """Sos un experto en facturación médica quirúrgica argentina.
-Se te proporciona el contenido de una foja quirúrgica y el contexto de nomencladores e instructivos.
 
-Tu tarea:
-1. Identificar los PROCEDIMIENTOS QUIRÚRGICOS realizados.
-2. Determinar el CÓDIGO de nomenclador (NOMIVAC, PMO, AAM u otro de los instructivos).
-3. Indicar la UNIDAD DE VALOR o MONTO si está disponible.
-4. Señalar MATERIALES o GASTOS ADICIONALES facturables (prótesis, descartables, etc.).
-5. Indicar REGLAS ESPECIALES (reducción por acto múltiple, códigos complementarios, etc.).
-6. Si algo no está claro o sin código, decilo explícitamente.
+Se te proporciona:
+  A) El NOMENCLADOR OFICIAL cargado en el sistema (con códigos y precios exactos).
+  B) El contenido de una foja quirúrgica.
 
-Estructura tu respuesta así:
+⚠️ REGLAS ESTRICTAS - DEBES CUMPLIRLAS:
+  1. SOLO podés usar códigos que aparezcan LITERALMENTE en el NOMENCLADOR que se te adjunta abajo.
+  2. PROHIBIDO inventar códigos, PROHIBIDO usar tu conocimiento previo de nomencladores.
+  3. Si un procedimiento NO está en el nomenclador adjunto, escribí: "❌ SIN CÓDIGO EN EL NOMENCLADOR"
+  4. El precio/valor que reportes DEBE ser el que figura en el nomenclador adjunto, textual.
+  5. Nunca digas "verificá el código" ni "ajustá según políticas" — vos tenés el nomenclador completo.
 
-## Procedimientos identificados
-[lista de procedimientos de la foja]
+Estructura tu respuesta:
 
-## Códigos de facturación
-[código - descripción - unidad/monto por procedimiento]
+## Procedimientos identificados en la foja
+[listado de procedimientos leídos en la foja]
 
-## Materiales o gastos adicionales facturables
-[si corresponde]
+## Codificación según el nomenclador
+| Procedimiento | Código | Descripción en nomenclador | Valor |
+|---|---|---|---|
+[una fila por procedimiento]
 
-## Reglas y observaciones
-[consideraciones especiales, reducciones, actos múltiples, etc.]
+## Materiales / Gastos adicionales facturables
+[si aplica según instructivos]
 
-## Resumen para presentar
-[texto listo para copiar y presentar a la obra social]
+## Reglas especiales (acto múltiple, etc.)
+[si aplica]
+
+## Resumen listo para presentar
+[texto limpio para entregar a la obra social]
 
 ---
-CONTEXTO DE NOMENCLADORES E INSTRUCTIVOS:
+=== NOMENCLADOR CARGADO EN EL SISTEMA ===
 {context}
+=== FIN DEL NOMENCLADOR ===
 
 ---
-CONTENIDO DE LA FOJA QUIRÚRGICA:
+=== CONTENIDO DE LA FOJA QUIRÚRGICA ===
 {foja}
 """
 
 PROMPT_FOJA_VISION = """Sos un experto en facturación médica quirúrgica argentina.
-En la imagen adjunta se encuentra una FOJA QUIRÚRGICA o documento médico.
-Leé e interpretá TODA la información visible.
 
-Tenés acceso al siguiente contexto de nomencladores e instructivos de facturación:
+En la imagen adjunta hay una FOJA QUIRÚRGICA. Leé todo el contenido visible.
+
+Se te adjunta a continuación el NOMENCLADOR OFICIAL completo cargado en el sistema.
+
+⚠️ REGLAS ESTRICTAS - DEBES CUMPLIRLAS:
+  1. SOLO podés asignar códigos que aparezcan LITERALMENTE en el NOMENCLADOR que se te adjunta abajo.
+  2. PROHIBIDO inventar códigos, PROHIBIDO usar tu conocimiento previo de nomencladores.
+  3. Si un procedimiento NO está en el nomenclador adjunto, escribí: "❌ SIN CÓDIGO EN EL NOMENCLADOR"
+  4. El precio/valor que reportes DEBE ser el que figura en el nomenclador adjunto, textual.
+  5. Nunca digas "verificá el código" ni "ajustá según políticas" — vos tenés el nomenclador completo.
+
+Estructura tu respuesta:
+
+## Procedimientos identificados en la foja
+[listado de procedimientos leídos en la imagen]
+
+## Codificación según el nomenclador
+| Procedimiento | Código | Descripción en nomenclador | Valor |
+|---|---|---|---|
+[una fila por procedimiento]
+
+## Materiales / Gastos adicionales facturables
+[si aplica según instructivos adjuntos]
+
+## Reglas especiales (acto múltiple, etc.)
+[si aplica]
+
+## Resumen listo para presentar
+[texto limpio para entregar a la obra social]
+
 ---
+=== NOMENCLADOR CARGADO EN EL SISTEMA ===
 {context}
----
-
-Realizá el siguiente análisis CODIFICANDO ESTRICTAMENTE EN BASE A LOS INSTRUCTIVOS Y NOMENCLADORES PROPORCIONADOS:
-1. Identificá los PROCEDIMIENTOS QUIRÚRGICOS realizados.
-2. Determiná el CÓDIGO de nomenclador para cada procedimiento (utilizando únicamente los instructivos y nomencladores en contexto).
-3. Indicá la UNIDAD DE VALOR o MONTO si está disponible en el nomenclador.
-4. Señalá MATERIALES o GASTOS ADICIONALES facturables (prótesis, descartables, etc.).
-5. Indicá REGLAS ESPECIALES (reducción por acto múltiple, códigos complementarios, etc.).
-6. Si algo no está claro o sin código asignado, decilo explícitamente.
-
-Estructurá tu respuesta así:
-
-## Procedimientos identificados
-[lista]
-
-## Códigos de facturación
-[código - descripción - unidad/monto]
-
-## Materiales o gastos adicionales facturables
-[si corresponde]
-
-## Reglas y observaciones
-[consideraciones especiales]
-
-## Resumen para presentar
-[texto listo para copiar y presentar a la obra social]
+=== FIN DEL NOMENCLADOR ===
 """
 
 
+def _leer_nomenclador_completo() -> str:
+    """Lee todos los archivos .txt del directorio de documentos y los devuelve
+    como texto plano completo. Los archivos .txt son los nomencladores en formato
+    tab-separado (Código | Descripción | Valor). Se usa texto completo en vez de
+    RAG para evitar que la IA reciba fragmentos incompletos."""
+    if not DOCS_DIR.exists():
+        return ""
+    partes = []
+    for archivo in sorted(DOCS_DIR.iterdir()):
+        if archivo.suffix.lower() == ".txt" and archivo.is_file():
+            try:
+                partes.append(archivo.read_text(encoding="utf-8", errors="ignore"))
+                logger.info("Nomenclador cargado: %s", archivo.name)
+            except Exception as e:
+                logger.warning("No se pudo leer %s: %s", archivo.name, e)
+    return "\n\n".join(partes)
+
+
 def _obtener_contexto_rag() -> str:
-    """Recupera fragmentos de nomencladores relevantes para cirugía.
-    Si no hay documentos cargados, devuelve string vacío sin tocar ChromaDB.
+    """Recupera fragmentos de nomencladores relevantes para cirugía (PDFs e instructivos).
+    Para los archivos .txt (nomencladores) se usa texto completo via _leer_nomenclador_completo.
     """
-    # Si no hay documentos, no intentamos tocar ChromaDB (evita errores de colección vacía)
-    extensiones = {".pdf", ".txt", ".docx", ".doc", ".xlsx", ".xls"}
-    hay_docs = any(
-        f.suffix.lower() in extensiones
+    texto_nomencladores = _leer_nomenclador_completo()
+
+    extensiones_rag = {".pdf", ".docx", ".doc", ".xlsx", ".xls"}
+    hay_docs_rag = any(
+        f.suffix.lower() in extensiones_rag
         for f in DOCS_DIR.iterdir()
         if f.is_file()
     ) if DOCS_DIR.exists() else False
 
-    if not hay_docs:
-        return ""  # Sin contexto: GPT usará su conocimiento general
+    fragmentos_rag = ""
+    if hay_docs_rag:
+        try:
+            retriever  = _obtener_vectorstore().as_retriever(
+                search_type="similarity", search_kwargs={"k": 20}
+            )
+            fragmentos = retriever.invoke(
+                "procedimiento quirúrgico cirugía codes facturación instructivo reglas especiales"
+            )
+            fragmentos_rag = "\n\n".join(f.page_content for f in fragmentos)
+        except Exception as e:
+            logger.warning("No se pudo recuperar contexto RAG (omitido): %s", e)
 
-    try:
-        retriever  = _obtener_vectorstore().as_retriever(
-            search_type="similarity", search_kwargs={"k": 8}
-        )
-        fragmentos = retriever.invoke(
-            "códigos facturación cirugía quirúrgico procedimiento nomenclador honorarios"
-        )
-        contexto = "\n\n".join(f.page_content for f in fragmentos)
-        return contexto
-    except Exception as e:
-        logger.warning("No se pudo recuperar contexto RAG (omitido): %s", e)
-        return ""
+    partes = []
+    if texto_nomencladores:
+        partes.append("=== NOMENCLADOR (CÓDIGOS Y PRECIOS EXACTOS) ===\n" + texto_nomencladores)
+    if fragmentos_rag:
+        partes.append("=== INSTRUCTIVOS Y REGLAS ===\n" + fragmentos_rag)
+
+    if not partes:
+        return ""  # Sin contexto
+    return "\n\n".join(partes)
 
 
 def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> dict:
@@ -330,18 +364,15 @@ def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> 
     client    = OpenAI(api_key=api_key)
     b64_image = base64.b64encode(imagen_bytes).decode("utf-8")
 
-    # Sección de contexto solo si hay documentos cargados
+    # Contexto: nomenclador completo (txt) + instructivos via RAG (pdfs)
+    contexto = _obtener_contexto_rag()
+
     if contexto.strip():
-        seccion_contexto = (
-            "Tenés acceso al siguiente contexto de nomencladores e instructivos de facturación:\n"
-            "---\n"
-            f"{contexto}\n"
-            "---\n\n"
-        )
+        seccion_contexto = contexto
     else:
         seccion_contexto = (
-            "No hay nomencladores específicos cargados. Usá tu conocimiento general "
-            "sobre nomencladores médicos argentinos (NOMIVAC, PMO, AAM, etc.).\n\n"
+            "⚠️ No hay nomencladores cargados en el sistema. "
+            "Indicá que no fue posible codificar porque no hay nomenclador disponible."
         )
 
     prompt = PROMPT_FOJA_VISION.format(context=seccion_contexto)
