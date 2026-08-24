@@ -137,6 +137,15 @@ def agregar_documento_a_base(ruta: Path) -> int:
 
 
 def indexar_todos_los_documentos() -> int:
+    try:
+        vs = _obtener_vectorstore()
+        # Prevent duplicate indexing if there are already documents
+        if vs._collection.count() > 0:
+            logger.info("La base de datos vectorial ya contiene documentos. Se omite indexación automática.")
+            return 0
+    except Exception as e:
+        logger.warning(f"No se pudo verificar la colección: {e}")
+        
     extensiones = {".pdf", ".txt", ".docx", ".doc", ".xlsx", ".xls"}
     total = 0
     for archivo in DOCS_DIR.iterdir():

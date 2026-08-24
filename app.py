@@ -14,6 +14,7 @@ try:
         agregar_documento_a_base,
         listar_documentos,
         analizar_foja_quirurgica,
+        indexar_todos_los_documentos,
         DOCS_DIR,
     )
     from whatsapp_api import verificar_webhook, extraer_mensaje, enviar_texto
@@ -30,6 +31,7 @@ except ImportError as _e:
     def agregar_documento_a_base(r): return 0
     def listar_documentos():       return []
     def analizar_foja_quirurgica(r): return {"ok": False, "error": _bot_error}
+    def indexar_todos_los_documentos(): return 0
     def verificar_webhook(a):      return "Bot no disponible", 503
     def extraer_mensaje(p):        return None
     def enviar_texto(n, t):        return False
@@ -39,6 +41,24 @@ except ImportError as _e:
 from sss_beneficiarios_hospitales.data import DataBeneficiariosSSSHospital
 
 
+# ============================================================
+# AUTO-INDEXING EN SEGUNDO PLANO
+# ============================================================
+
+def _iniciar_indexacion_background():
+    if BOT_DISPONIBLE:
+        def tarea():
+            try:
+                # Esto indexará los documentos si la colección está vacía
+                indexar_todos_los_documentos()
+            except Exception as e:
+                print(f"Error en auto-indexación: {e}")
+        
+        t = threading.Thread(target=tarea, daemon=True)
+        t.start()
+
+# Disparar indexación al iniciar
+_iniciar_indexacion_background()
 
 # ============================================================
 # CONFIGURACIÓN
