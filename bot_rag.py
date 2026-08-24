@@ -137,12 +137,18 @@ def agregar_documento_a_base(ruta: Path) -> int:
 
 
 def indexar_todos_los_documentos() -> int:
+    archivos_existentes = set()
     try:
         vs = _obtener_vectorstore()
-        # Prevent duplicate indexing if there are already documents
         if vs._collection.count() > 0:
-            logger.info("La base de datos vectorial ya contiene documentos. Se omite indexación automática.")
-            return 0
+            # Recuperar metadatos para ver qué archivos ya están indexados
+            resultados = vs._collection.get(include=["metadatas"])
+            if resultados and resultados.get("metadatas"):
+                for meta in resultados["metadatas"]:
+                    if meta and "source" in meta:
+                        # Extraer solo el nombre del archivo de la ruta fuente
+                        archivos_existentes.add(Path(meta["source"]).name)
+            logger.info(f"Archivos ya indexados en DB: {archivos_existentes}")
     except Exception as e:
         logger.warning(f"No se pudo verificar la colección: {e}")
         
@@ -150,6 +156,10 @@ def indexar_todos_los_documentos() -> int:
     total = 0
     for archivo in DOCS_DIR.iterdir():
         if archivo.suffix.lower() in extensiones:
+            if archivo.name in archivos_existentes:
+                logger.info("Omitiendo '%s', ya está indexado.", archivo.name)
+                continue
+            logger.info("Indexando nuevo archivo: '%s'", archivo.name)
             total += agregar_documento_a_base(archivo)
     return total
 
