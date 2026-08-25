@@ -485,7 +485,7 @@
                 inputSss.files[0] ? inputSss.files[0].name : 'Ningún archivo seleccionado';
         });
 
-        document.getElementById('zona-sss').addEventListener('click', () => inputSss.click());
+        // Evento de clic en zona-sss eliminado para evitar doble disparo en móviles
 
         document.getElementById('form-sssalud').addEventListener('submit', () => {
             btnSss.innerHTML = '<span class="spinner"></span> Procesando...';
@@ -506,7 +506,7 @@
             document.getElementById('resultado-foja').style.display = 'none';
         });
 
-        document.getElementById('zona-foja').addEventListener('click', () => inputFoja.click());
+        // Evento de clic en zona-foja eliminado para evitar doble disparo en móviles
 
         btnAnalizar.addEventListener('click', async () => {
             const archivo = inputFoja.files[0];
@@ -674,7 +674,7 @@
                 inputDoc.files[0] ? inputDoc.files[0].name : 'Ningún archivo seleccionado';
         });
 
-        document.getElementById('zona-doc').addEventListener('click', () => inputDoc.click());
+        // Evento de clic en zona-doc eliminado para evitar doble disparo en móviles
 
         btnSubir.addEventListener('click', async () => {
             const archivo = inputDoc.files[0];
