@@ -29,7 +29,7 @@ CHROMA_DIR.mkdir(exist_ok=True)
 CHUNK_SIZE      = 1000
 CHUNK_OVERLAP   = 150
 MODEL_NAME      = "gpt-4o-mini"        # Para respuestas de texto (más económico)
-MODEL_VISION    = "gpt-4o"             # Para análisis de imágenes (visión completa)
+MODEL_VISION    = "gpt-4o-mini"             # Para análisis de imágenes (visión completa y más económica)
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 EXTENSIONES_IMAGEN = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
