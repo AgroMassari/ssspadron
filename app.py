@@ -10,7 +10,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import urllib3
+import sqlite3
+import queue
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -91,10 +92,60 @@ FILA_INICIO = 11
 COLUMNA_DNI = 1
 COLUMNA_OBRA_SOCIAL = 7
 
-# Concurrencia óptima para SSSalud (6 a 8 hilos evitan bloqueo de sesión PHP y error 503)
-MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 8))
+# Concurrencia con Pool de Sesiones Independientes y Base de Datos Local
+NUM_SESSIONS = int(os.environ.get("SSS_NUM_SESSIONS", 4))
+MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 14))
 CACHE_DNI = {}
 CACHE_LOCK = threading.Lock()
+
+# Base de datos SQLite persistente para resolver DNIs conocidos en 0 segundos
+CACHE_DB_PATH = BASE_DIR / "padron_cache.sqlite"
+
+def init_cache_db():
+    try:
+        with sqlite3.connect(CACHE_DB_PATH) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS padron_cache (
+                    dni TEXT PRIMARY KEY,
+                    resultado TEXT,
+                    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_padron_dni ON padron_cache(dni)")
+    except Exception as e:
+        print(f"Error inicializando sqlite cache: {e}")
+
+init_cache_db()
+
+def obtener_cache_multiples(dnis):
+    encontrados = {}
+    if not dnis:
+        return encontrados
+    try:
+        with sqlite3.connect(CACHE_DB_PATH) as conn:
+            cur = conn.cursor()
+            for i in range(0, len(dnis), 900):
+                lote = dnis[i:i+900]
+                q = f"SELECT dni, resultado FROM padron_cache WHERE dni IN ({','.join('?' for _ in lote)})"
+                for row in cur.execute(q, lote):
+                    if row[1] and row[1] != "ERROR CONSULTA":
+                        encontrados[str(row[0])] = row[1]
+    except Exception as e:
+        print(f"Error leyendo cache sqlite: {e}")
+    return encontrados
+
+def guardar_cache_multiples(items):
+    if not items:
+        return
+    try:
+        with sqlite3.connect(CACHE_DB_PATH) as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO padron_cache (dni, resultado) VALUES (?, ?)",
+                [(str(d), str(r)) for d, r in items if r and r != "ERROR CONSULTA"]
+            )
+    except Exception as e:
+        print(f"Error guardando cache sqlite: {e}")
+
 
 app = Flask(__name__)
 
@@ -227,18 +278,19 @@ def parsear_datos_fallback(datos):
     return "ERROR CONSULTA"
 
 
-class FastSSSaludClient:
+class SessionWorker:
+    """Instancia de sesión HTTP independiente con su propia cookie PHPSESSID"""
     LOGIN_URL = 'https://seguro.sssalud.gob.ar/login.php?b_publica=Acceso+Restringido+para+Hospitales&opc=bus650&user=HPGD'
-    QUERY_URL = 'https://seguro.sssalud.gob.ar/indexss.php?opc=bus650&user=HPGD&cat=consultas'
 
-    def __init__(self, user, password, pool_size=16):
+    def __init__(self, user, password, idx):
         self.user = user
         self.password = password
+        self.idx = idx
         self.session = requests.Session()
         adapter = HTTPAdapter(
-            pool_connections=pool_size,
-            pool_maxsize=pool_size,
-            max_retries=Retry(total=2, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
+            pool_connections=6,
+            pool_maxsize=6,
+            max_retries=Retry(total=2, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
         )
         self.session.mount('https://', adapter)
         self.session.mount('http://', adapter)
@@ -247,7 +299,40 @@ class FastSSSaludClient:
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         })
         self.logged_in = False
-        self._lock = threading.Lock()
+        self.lock = threading.Lock()
+
+    def login(self, force=False):
+        with self.lock:
+            if self.logged_in and not force:
+                return True
+            try:
+                params = {
+                    '_user_name_': self.user,
+                    '_pass_word_': self.password,
+                    'submitbtn': 'Ingresar'
+                }
+                res = self.session.post(self.LOGIN_URL, data=params, verify=False, timeout=12)
+                if 'usuario_logueado' in res.text or 'nro_doc' in res.text or 'cat=consultas' in res.text:
+                    self.logged_in = True
+                    return True
+            except Exception as e:
+                print(f"Error en login sesión {self.idx}: {e}")
+            self.logged_in = False
+            return False
+
+
+class FastSSSaludClient:
+    QUERY_URL = 'https://seguro.sssalud.gob.ar/indexss.php?opc=bus650&user=HPGD&cat=consultas'
+
+    def __init__(self, user, password, num_sessions=4):
+        self.user = user
+        self.password = password
+        self.num_sessions = max(2, num_sessions)
+        self.session_pool = queue.Queue()
+        for i in range(self.num_sessions):
+            worker = SessionWorker(user, password, i + 1)
+            worker.login()
+            self.session_pool.put(worker)
 
         # Fallback usando la librería tradicional si está instalada
         self._fallback_sss = None
@@ -259,46 +344,15 @@ class FastSSSaludClient:
             except Exception:
                 pass
 
-    def login(self, force=False):
-        with self._lock:
-            if self.logged_in and not force:
-                return True
-            try:
-                params = {
-                    '_user_name_': self.user,
-                    '_pass_word_': self.password,
-                    'submitbtn': 'Ingresar'
-                }
-                res = self.session.post(self.LOGIN_URL, data=params, verify=False, timeout=15)
-                if 'usuario_logueado' in res.text or 'nro_doc' in res.text or 'cat=consultas' in res.text:
-                    self.logged_in = True
-                    return True
-
-                if self._fallback_sss:
-                    ok = self._fallback_sss.login()
-                    if ok:
-                        self.session.cookies.update(self._fallback_sss.session.cookies)
-                        self.logged_in = True
-                        return True
-            except Exception as e:
-                print(f"Error en login SSSalud: {e}")
-            self.logged_in = False
-            return False
-
     def query(self, dni):
         dni_str = str(dni).strip()
         if not dni_str:
             return "ERROR CONSULTA"
 
-        # 1. Caché en memoria (NO cacheamos 'ERROR CONSULTA' para no perpetuar fallos temporales)
+        # 1. Memoria RAM
         with CACHE_LOCK:
             if dni_str in CACHE_DNI and CACHE_DNI[dni_str] != "ERROR CONSULTA":
                 return CACHE_DNI[dni_str]
-
-        # 2. Verificación inicial de sesión
-        if not self.logged_in:
-            if not self.login():
-                return "ERROR CONSULTA"
 
         params = {
             'pagina_consulta': '',
@@ -307,49 +361,48 @@ class FastSSSaludClient:
             'B1': 'Consultar'
         }
 
-        # Intentar hasta 2 veces con re-login si el servidor rate-limita o desconecta la sesión
-        for intento in range(2):
-            try:
-                res = self.session.post(self.QUERY_URL, data=params, verify=False, timeout=12)
-                text = res.text
+        worker = self.session_pool.get()
+        try:
+            for intento in range(2):
+                if not worker.logged_in:
+                    worker.login(force=True)
 
-                # Si el servidor responde con 5xx, 429 o pide re-login
-                necesita_relogin = (
-                    res.status_code in [401, 403, 429, 500, 502, 503, 504]
-                    or ('Ingresar' in text and '_user_name_' in text)
-                )
+                try:
+                    res = worker.session.post(self.QUERY_URL, data=params, verify=False, timeout=10)
+                    text = res.text
 
-                if necesita_relogin:
-                    time.sleep(0.4 * (intento + 1))
-                    self.login(force=True)
-                    continue
+                    if res.status_code in [401, 403, 429, 500, 502, 503, 504] or ('Ingresar' in text and '_user_name_' in text):
+                        time.sleep(0.3 * (intento + 1))
+                        worker.login(force=True)
+                        continue
 
-                resultado = parsear_respuesta_sss(text)
+                    resultado = parsear_respuesta_sss(text)
+                    if resultado != "ERROR CONSULTA":
+                        with CACHE_LOCK:
+                            CACHE_DNI[dni_str] = resultado
+                        return resultado
 
-                if resultado != "ERROR CONSULTA":
-                    with CACHE_LOCK:
-                        CACHE_DNI[dni_str] = resultado
-                    return resultado
+                    # Fallback opcional si el parseo dio error
+                    if self._fallback_sss:
+                        try:
+                            res_fb = self._fallback_sss.query(dni_str)
+                            if res_fb.get("ok"):
+                                resultado = parsear_datos_fallback(res_fb.get("resultados", {}))
+                                if resultado != "ERROR CONSULTA":
+                                    with CACHE_LOCK:
+                                        CACHE_DNI[dni_str] = resultado
+                                    return resultado
+                        except Exception:
+                            pass
 
-                # Fallback con librería original
-                if self._fallback_sss:
-                    try:
-                        res_fb = self._fallback_sss.query(dni_str)
-                        if res_fb.get("ok"):
-                            resultado = parsear_datos_fallback(res_fb.get("resultados", {}))
-                            if resultado != "ERROR CONSULTA":
-                                with CACHE_LOCK:
-                                    CACHE_DNI[dni_str] = resultado
-                                return resultado
-                    except Exception:
-                        pass
+                except Exception as e:
+                    print(f"Error consultando DNI {dni_str} en worker {worker.idx}: {e}")
+                    time.sleep(0.3)
+                    worker.login(force=True)
 
-            except Exception as e:
-                print(f"Error consultando DNI {dni_str} (intento {intento+1}): {e}")
-                time.sleep(0.4)
-                self.login(force=True)
-
-        return "ERROR CONSULTA"
+            return "ERROR CONSULTA"
+        finally:
+            self.session_pool.put(worker)
 
 
 # ============================================================
@@ -366,9 +419,8 @@ def crear_conexion_sss():
     client = FastSSSaludClient(
         user=usuario,
         password=password,
-        pool_size=MAX_WORKERS * 2
+        num_sessions=NUM_SESSIONS
     )
-    client.login()
     return client
 
 
@@ -392,7 +444,7 @@ def consultar_dni(sss, dni):
 
 
 # ============================================================
-# PROCESAMIENTO EN SEGUNDO PLANO (CONCURRENTE ROBUSTO)
+# PROCESAMIENTO EN SEGUNDO PLANO (MULTI-SESIÓN + CACHÉ PERSISTENTE)
 # ============================================================
 
 def procesar_archivo(
@@ -470,13 +522,13 @@ def procesar_archivo(
 
         print("")
         print("====================================================")
-        print("       PROCESAMIENTO SSSALUD CONCURRENTE")
+        print("       PROCESAMIENTO SSSALUD ULTRARRÁPIDO")
         print("====================================================")
         print("Última fila del Excel:", ultima_fila)
         print("Registros válidos de pacientes:", total)
         print("Total de DNIs únicos a consultar:", len(dnis_unicos))
         print("Columna destino Obra Social:", col_obra_social)
-        print("Hilos concurrentes (Workers):", MAX_WORKERS)
+        print(f"Sesiones concurrentes: {NUM_SESSIONS} | Workers: {MAX_WORKERS}")
         print("====================================================")
 
         if total == 0:
@@ -489,60 +541,88 @@ def procesar_archivo(
             return
 
         # ----------------------------------------------------
-        # 4. CONEXIÓN SSSALUD
-        # ----------------------------------------------------
-        estado["estado"] = "conectando_sssalud"
-        sss = crear_conexion_sss()
-        estado["estado"] = "consultando"
-
-        # ----------------------------------------------------
-        # 5. CONSULTAS CONCURRENTES EN PARALELO
+        # 4. RESOLUCIÓN INSTANTÁNEA DESDE BASE / CACHÉ LOCAL
         # ----------------------------------------------------
         inicio = time.time()
-        lock_estado = threading.Lock()
-        resultados_dni = {}
+        resultados_dni = obtener_cache_multiples(dnis_unicos)
 
-        def procesar_un_dni(dni):
-            time.sleep(0.04)  # Espaciado suave para no saturar el socket
-            res = consultar_dni(sss, dni)
-            filas = dni_a_filas[dni]
-            cant = len(filas)
+        # Poblar contadores con los ya conocidos de SQLite
+        cant_resueltos_db = 0
+        for d, res in resultados_dni.items():
+            cant = len(dni_a_filas[d])
+            cant_resueltos_db += cant
+            if res == "NO AFILIADO":
+                estado["no_afiliados"] += cant
+            elif res == "ERROR CONSULTA":
+                estado["errores"] += cant
+            else:
+                estado["afiliados"] += cant
 
-            with lock_estado:
-                resultados_dni[dni] = res
-                estado["procesadas"] += cant
-                estado["consultas"] += 1
-                estado["fila"] = filas[-1]
-                estado["dni"] = dni
-                estado["ultimo_resultado"] = res
+        estado["procesadas"] = cant_resueltos_db
+        if total > 0:
+            estado["porcentaje"] = min(100.0, round((cant_resueltos_db / total) * 100, 1))
 
-                if res == "NO AFILIADO":
-                    estado["no_afiliados"] += cant
-                elif res == "ERROR CONSULTA":
-                    estado["errores"] += cant
-                else:
-                    estado["afiliados"] += cant
+        dnis_pendientes = [d for d in dnis_unicos if d not in resultados_dni]
+        print(f"DNIs resueltos al instante por Base de Datos/Caché: {len(resultados_dni)} ({cant_resueltos_db} filas)")
+        print(f"DNIs pendientes de consulta remota: {len(dnis_pendientes)}")
 
-                transcurrido = time.time() - inicio
-                estado["segundos"] = round(transcurrido, 1)
+        # ----------------------------------------------------
+        # 5. SI HAY PENDIENTES, CONSULTAR CON SESIONES PARALELAS
+        # ----------------------------------------------------
+        nuevos_para_guardar = []
 
-                if total > 0:
-                    estado["porcentaje"] = min(100.0, round((estado["procesadas"] / total) * 100, 1))
-                    if estado["procesadas"] > 0:
-                        promedio = transcurrido / estado["procesadas"]
-                        restantes = max(0, total - estado["procesadas"])
-                        estado["estimado_restante"] = round(promedio * restantes, 1)
+        if dnis_pendientes:
+            estado["estado"] = "conectando_sssalud"
+            sss = crear_conexion_sss()
+            estado["estado"] = "consultando"
 
-            print(f"DNI {dni} -> {res} ({cant} filas)")
-            return dni, res
+            lock_estado = threading.Lock()
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futuros = [executor.submit(procesar_un_dni, d) for d in dnis_unicos]
-            for f in as_completed(futuros):
-                try:
-                    f.result()
-                except Exception as ex_hilo:
-                    print(f"Error en hilo de consulta: {ex_hilo}")
+            def procesar_un_dni(dni):
+                time.sleep(0.03)  # Pequeño espaciado para distribuir la carga entre sesiones
+                res = consultar_dni(sss, dni)
+                filas = dni_a_filas[dni]
+                cant = len(filas)
+
+                with lock_estado:
+                    resultados_dni[dni] = res
+                    nuevos_para_guardar.append((dni, res))
+                    estado["procesadas"] += cant
+                    estado["consultas"] += 1
+                    estado["fila"] = filas[-1]
+                    estado["dni"] = dni
+                    estado["ultimo_resultado"] = res
+
+                    if res == "NO AFILIADO":
+                        estado["no_afiliados"] += cant
+                    elif res == "ERROR CONSULTA":
+                        estado["errores"] += cant
+                    else:
+                        estado["afiliados"] += cant
+
+                    transcurrido = time.time() - inicio
+                    estado["segundos"] = round(transcurrido, 1)
+
+                    if total > 0:
+                        estado["porcentaje"] = min(100.0, round((estado["procesadas"] / total) * 100, 1))
+                        pendientes_count = total - estado["procesadas"]
+                        if estado["procesadas"] > cant_resueltos_db and transcurrido > 0:
+                            velocidad = (estado["procesadas"] - cant_resueltos_db) / transcurrido
+                            estado["estimado_restante"] = round(pendientes_count / max(0.1, velocidad), 1)
+
+                return dni, res
+
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futuros = [executor.submit(procesar_un_dni, d) for d in dnis_pendientes]
+                for f in as_completed(futuros):
+                    try:
+                        f.result()
+                    except Exception as ex_hilo:
+                        print(f"Error en hilo de consulta: {ex_hilo}")
+
+            # Guardar los nuevos en la base de datos persistente SQLite
+            if nuevos_para_guardar:
+                guardar_cache_multiples(nuevos_para_guardar)
 
         # ----------------------------------------------------
         # 6. ESCRIBIR RESULTADOS EN EXCEL (CON PROTECCIÓN MERGEDCELL)
@@ -553,7 +633,6 @@ def procesar_archivo(
             for fila in filas:
                 try:
                     cell = ws.cell(fila, col_obra_social)
-                    # Protección estricta contra celdas combinadas de formato o pie de página
                     if type(cell).__name__ == "MergedCell":
                         continue
                     cell.value = res_dni
@@ -733,6 +812,80 @@ def procesar():
         "progreso.html",
         id_proceso=identificador
     )
+
+
+# ============================================================
+# IMPORTAR PADRÓN PUCO O BASE PREVIA (INSTANTÁNEO)
+# ============================================================
+
+@app.route("/importar_padron", methods=["POST"])
+def importar_padron():
+    archivo = request.files.get("archivo")
+    if not archivo or not archivo.filename:
+        return jsonify({"ok": False, "error": "No se seleccionó archivo"}), 400
+
+    nombre = archivo.filename.lower()
+    registros_guardados = 0
+
+    try:
+        if nombre.endswith(".xlsx"):
+            wb = openpyxl.load_workbook(archivo, data_only=True)
+            ws = wb.active
+            fila_inicio = 1
+            col_dni = 1
+            col_os = 2
+
+            for r in range(1, 6):
+                for c in range(1, 15):
+                    val = str(ws.cell(r, c).value or "").lower()
+                    if "dni" in val or "documento" in val:
+                        col_dni = c
+                        fila_inicio = r + 1
+                    elif "obra social" in val or "cobertura" in val or "prepaga" in val:
+                        col_os = c
+
+            items = []
+            for r in range(fila_inicio, ws.max_row + 1):
+                d = limpiar_dni(ws.cell(r, col_dni).value)
+                os_val = str(ws.cell(r, col_os).value or "").strip()
+                if d and os_val and os_val.lower() not in ["none", "null", ""]:
+                    items.append((d, os_val))
+                    if len(items) >= 1000:
+                        guardar_cache_multiples(items)
+                        registros_guardados += len(items)
+                        items = []
+            if items:
+                guardar_cache_multiples(items)
+                registros_guardados += len(items)
+
+        elif nombre.endswith(".csv") or nombre.endswith(".txt"):
+            contenido = archivo.read().decode("utf-8", errors="ignore")
+            lineas = contenido.splitlines()
+            items = []
+            for l in lineas:
+                partes = re.split(r'[,;\t|]', l)
+                if len(partes) >= 2:
+                    d = limpiar_dni(partes[0])
+                    os_val = partes[1].strip()
+                    if d and os_val and os_val.lower() not in ["none", "null", ""]:
+                        items.append((d, os_val))
+                        if len(items) >= 1000:
+                            guardar_cache_multiples(items)
+                            registros_guardados += len(items)
+                            items = []
+            if items:
+                guardar_cache_multiples(items)
+                registros_guardados += len(items)
+        else:
+            return jsonify({"ok": False, "error": "Formato no soportado. Usá .xlsx, .csv o .txt"}), 400
+
+        return jsonify({
+            "ok": True,
+            "mensaje": f"Se importaron {registros_guardados} registros en la base local permanente. Las consultas de estos pacientes ahora serán instantáneas."
+        })
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ============================================================
