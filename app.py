@@ -13,6 +13,7 @@ import urllib3
 from urllib3.util.retry import Retry
 import sqlite3
 import queue
+import json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -94,8 +95,8 @@ COLUMNA_DNI = 1
 COLUMNA_OBRA_SOCIAL = 7
 
 # Concurrencia con Pool de Sesiones Independientes y Base de Datos Local
-NUM_SESSIONS = int(os.environ.get("SSS_NUM_SESSIONS", 4))
-MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 14))
+NUM_SESSIONS = int(os.environ.get("SSS_NUM_SESSIONS", 6))
+MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 18))
 CACHE_DNI = {}
 CACHE_LOCK = threading.Lock()
 
@@ -183,6 +184,32 @@ def limpiar_dni(val):
 # ============================================================
 
 procesos = {}
+ESTADOS_PROCESOS_DIR = BASE_DIR / "estados_tmp"
+ESTADOS_PROCESOS_DIR.mkdir(exist_ok=True)
+
+def guardar_estado_proceso(id_proceso, datos):
+    with CACHE_LOCK:
+        procesos[id_proceso] = datos
+    try:
+        ruta = ESTADOS_PROCESOS_DIR / f"{id_proceso}.json"
+        ruta.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+def obtener_estado_proceso(id_proceso):
+    with CACHE_LOCK:
+        if id_proceso in procesos:
+            return procesos[id_proceso]
+    ruta = ESTADOS_PROCESOS_DIR / f"{id_proceso}.json"
+    if ruta.exists():
+        try:
+            d = json.loads(ruta.read_text(encoding="utf-8"))
+            with CACHE_LOCK:
+                procesos[id_proceso] = d
+            return d
+        except Exception:
+            pass
+    return None
 
 
 # ============================================================
@@ -453,13 +480,30 @@ def procesar_archivo(
     archivo_entrada,
     archivo_salida
 ):
-    estado = procesos[id_proceso]
+    estado = obtener_estado_proceso(id_proceso) or {
+        "estado": "iniciando",
+        "total": 0,
+        "procesadas": 0,
+        "fila": 0,
+        "dni": "",
+        "consultas": 0,
+        "afiliados": 0,
+        "no_afiliados": 0,
+        "errores": 0,
+        "ultimo_resultado": "",
+        "porcentaje": 0,
+        "segundos": 0,
+        "estimado_restante": 0,
+        "archivo": "",
+        "error": ""
+    }
 
     try:
         # ----------------------------------------------------
         # 1. ABRIR EXCEL
         # ----------------------------------------------------
         estado["estado"] = "abriendo_excel"
+        guardar_estado_proceso(id_proceso, estado)
         wb = openpyxl.load_workbook(archivo_entrada)
         ws = wb.active
         ultima_fila = ws.max_row
@@ -520,6 +564,7 @@ def procesar_archivo(
         estado["total"] = total
         estado["procesadas"] = 0
         estado["estado"] = "iniciando"
+        guardar_estado_proceso(id_proceso, estado)
 
         print("")
         print("====================================================")
@@ -539,6 +584,7 @@ def procesar_archivo(
             estado["archivo"] = Path(archivo_salida).name
             estado["segundos"] = 0
             estado["estimado_restante"] = 0
+            guardar_estado_proceso(id_proceso, estado)
             return
 
         # ----------------------------------------------------
@@ -562,6 +608,7 @@ def procesar_archivo(
         estado["procesadas"] = cant_resueltos_db
         if total > 0:
             estado["porcentaje"] = min(100.0, round((cant_resueltos_db / total) * 100, 1))
+        guardar_estado_proceso(id_proceso, estado)
 
         dnis_pendientes = [d for d in dnis_unicos if d not in resultados_dni]
         print(f"DNIs resueltos al instante por Base de Datos/Caché: {len(resultados_dni)} ({cant_resueltos_db} filas)")
@@ -574,13 +621,16 @@ def procesar_archivo(
 
         if dnis_pendientes:
             estado["estado"] = "conectando_sssalud"
+            guardar_estado_proceso(id_proceso, estado)
             sss = crear_conexion_sss()
             estado["estado"] = "consultando"
+            guardar_estado_proceso(id_proceso, estado)
 
             lock_estado = threading.Lock()
+            ultimo_guardado = [time.time()]
 
             def procesar_un_dni(dni):
-                time.sleep(0.03)  # Pequeño espaciado para distribuir la carga entre sesiones
+                time.sleep(0.02)  # Pequeño espaciado para distribuir la carga entre sesiones
                 res = consultar_dni(sss, dni)
                 filas = dni_a_filas[dni]
                 cant = len(filas)
@@ -610,6 +660,11 @@ def procesar_archivo(
                         if estado["procesadas"] > cant_resueltos_db and transcurrido > 0:
                             velocidad = (estado["procesadas"] - cant_resueltos_db) / transcurrido
                             estado["estimado_restante"] = round(pendientes_count / max(0.1, velocidad), 1)
+
+                    ahora = time.time()
+                    if ahora - ultimo_guardado[0] >= 0.5:
+                        guardar_estado_proceso(id_proceso, estado)
+                        ultimo_guardado[0] = ahora
 
                 return dni, res
 
@@ -644,6 +699,7 @@ def procesar_archivo(
         # 7. GUARDADO FINAL ÚNICO
         # ----------------------------------------------------
         estado["estado"] = "guardando"
+        guardar_estado_proceso(id_proceso, estado)
         wb.save(archivo_salida)
 
         # ----------------------------------------------------
@@ -655,6 +711,7 @@ def procesar_archivo(
         estado["archivo"] = Path(archivo_salida).name
         estado["segundos"] = round(time.time() - inicio, 1)
         estado["estimado_restante"] = 0
+        guardar_estado_proceso(id_proceso, estado)
 
         print("")
         print("====================================================")
@@ -675,6 +732,7 @@ def procesar_archivo(
         print(e)
         estado["estado"] = "error"
         estado["error"] = str(e)
+        guardar_estado_proceso(id_proceso, estado)
 
 
 # ============================================================
@@ -750,59 +808,41 @@ def procesar():
     )
 
     # --------------------------------------------------------
-    # CREAR ESTADO
+    # CREAR ESTADO PERSISTENTE
     # --------------------------------------------------------
 
-    procesos[identificador] = {
-
+    nuevo_estado = {
         "estado": "preparando",
-
         "total": 0,
-
         "procesadas": 0,
-
         "fila": 0,
-
         "dni": "",
-
         "consultas": 0,
-
         "afiliados": 0,
-
         "no_afiliados": 0,
-
         "errores": 0,
-
         "ultimo_resultado": "",
-
         "porcentaje": 0,
-
         "segundos": 0,
-
         "estimado_restante": 0,
-
         "archivo": "",
-
         "error": ""
     }
+    guardar_estado_proceso(identificador, nuevo_estado)
 
     # --------------------------------------------------------
     # INICIAR HILO
     # --------------------------------------------------------
 
     hilo = threading.Thread(
-
         target=procesar_archivo,
-
         args=(
             identificador,
             archivo_entrada,
             archivo_salida
         ),
-
         daemon=True
     )
-
     hilo.start()
 
     # --------------------------------------------------------
@@ -816,105 +856,25 @@ def procesar():
 
 
 # ============================================================
-# IMPORTAR PADRÓN PUCO O BASE PREVIA (INSTANTÁNEO)
-# ============================================================
-
-@app.route("/importar_padron", methods=["POST"])
-def importar_padron():
-    archivo = request.files.get("archivo")
-    if not archivo or not archivo.filename:
-        return jsonify({"ok": False, "error": "No se seleccionó archivo"}), 400
-
-    nombre = archivo.filename.lower()
-    registros_guardados = 0
-
-    try:
-        if nombre.endswith(".xlsx"):
-            wb = openpyxl.load_workbook(archivo, data_only=True)
-            ws = wb.active
-            fila_inicio = 1
-            col_dni = 1
-            col_os = 2
-
-            for r in range(1, 6):
-                for c in range(1, 15):
-                    val = str(ws.cell(r, c).value or "").lower()
-                    if "dni" in val or "documento" in val:
-                        col_dni = c
-                        fila_inicio = r + 1
-                    elif "obra social" in val or "cobertura" in val or "prepaga" in val:
-                        col_os = c
-
-            items = []
-            for r in range(fila_inicio, ws.max_row + 1):
-                d = limpiar_dni(ws.cell(r, col_dni).value)
-                os_val = str(ws.cell(r, col_os).value or "").strip()
-                if d and os_val and os_val.lower() not in ["none", "null", ""]:
-                    items.append((d, os_val))
-                    if len(items) >= 1000:
-                        guardar_cache_multiples(items)
-                        registros_guardados += len(items)
-                        items = []
-            if items:
-                guardar_cache_multiples(items)
-                registros_guardados += len(items)
-
-        elif nombre.endswith(".csv") or nombre.endswith(".txt"):
-            contenido = archivo.read().decode("utf-8", errors="ignore")
-            lineas = contenido.splitlines()
-            items = []
-            for l in lineas:
-                partes = re.split(r'[,;\t|]', l)
-                if len(partes) >= 2:
-                    d = limpiar_dni(partes[0])
-                    os_val = partes[1].strip()
-                    if d and os_val and os_val.lower() not in ["none", "null", ""]:
-                        items.append((d, os_val))
-                        if len(items) >= 1000:
-                            guardar_cache_multiples(items)
-                            registros_guardados += len(items)
-                            items = []
-            if items:
-                guardar_cache_multiples(items)
-                registros_guardados += len(items)
-        else:
-            return jsonify({"ok": False, "error": "Formato no soportado. Usá .xlsx, .csv o .txt"}), 400
-
-        return jsonify({
-            "ok": True,
-            "mensaje": f"Se importaron {registros_guardados} registros en la base local permanente. Las consultas de estos pacientes ahora serán instantáneas."
-        })
-
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-# ============================================================
-# CONSULTAR PROGRESO
+# CONSULTAR PROGRESO (SEGURO MULTI-PROCESO GUNICORN)
 # ============================================================
 
 @app.route(
     "/progreso/<id_proceso>"
 )
 def progreso(id_proceso):
-
-    estado = procesos.get(
-        id_proceso
-    )
-
+    estado = obtener_estado_proceso(id_proceso)
     if not estado:
-
         return jsonify({
-
-            "estado": "error",
-
-            "error": "Proceso no encontrado"
-
-        }), 404
-
-    return jsonify(
-        estado
-    )
+            "estado": "preparando",
+            "porcentaje": 0,
+            "procesadas": 0,
+            "total": 0,
+            "afiliados": 0,
+            "no_afiliados": 0,
+            "errores": 0
+        })
+    return jsonify(estado)
 
 
 # ============================================================
@@ -1151,8 +1111,21 @@ def eliminar_doc():
 FOJAS_DIR = BASE_DIR / "fojas_tmp"
 FOJAS_DIR.mkdir(exist_ok=True)
 
-# Estado en memoria de análisis de fojas (job_id -> resultado)
-_estado_fojas = {}
+def guardar_estado_foja(job_id, datos):
+    try:
+        ruta = FOJAS_DIR / f"{job_id}.json"
+        ruta.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"Error guardando estado foja: {e}")
+
+def obtener_estado_foja(job_id):
+    ruta = FOJAS_DIR / f"{job_id}.json"
+    if ruta.exists():
+        try:
+            return json.loads(ruta.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"estado": "procesando"}
 
 
 @app.route("/api/analizar_foja", methods=["POST"])
@@ -1178,14 +1151,14 @@ def analizar_foja():
     ruta_tmp   = FOJAS_DIR / nombre_tmp
     archivo.save(ruta_tmp)
 
-    _estado_fojas[job_id] = {"estado": "procesando"}
+    guardar_estado_foja(job_id, {"estado": "procesando"})
 
     def _analizar():
         try:
             resultado = analizar_foja_quirurgica(ruta_tmp)
-            _estado_fojas[job_id] = {"estado": "listo", **resultado}
+            guardar_estado_foja(job_id, {"estado": "listo", **resultado})
         except Exception as e:
-            _estado_fojas[job_id] = {"estado": "error", "ok": False, "error": str(e)}
+            guardar_estado_foja(job_id, {"estado": "error", "ok": False, "error": str(e)})
         finally:
             try:
                 ruta_tmp.unlink(missing_ok=True)
@@ -1200,7 +1173,7 @@ def analizar_foja():
 
 @app.route("/api/estado_foja/<job_id>")
 def estado_foja(job_id):
-    estado = _estado_fojas.get(job_id, {"estado": "no_encontrado"})
+    estado = obtener_estado_foja(job_id)
     return jsonify(estado)
 
 

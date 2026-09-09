@@ -390,7 +390,7 @@ def _analizar_con_vision(imagenes, contexto: str, mime_type: str = "image/jpeg")
             if isinstance(item, tuple):
                 lista_imagenes.append(item)
             else:
-                lista_imagenes.append((item, "image/png"))
+                lista_imagenes.append((item, "image/jpeg"))
     elif isinstance(imagenes, tuple):
         lista_imagenes.append(imagenes)
     else:
@@ -436,7 +436,7 @@ def _analizar_con_vision(imagenes, contexto: str, mime_type: str = "image/jpeg")
                 }
             ],
             max_tokens=2500,
-            timeout=55,
+            timeout=85,
         )
         return {"ok": True, "analisis": respuesta.choices[0].message.content}
     except Exception as e:
@@ -546,15 +546,18 @@ def analizar_foja_quirurgica(ruta) -> dict:
             num_paginas = min(len(doc), 4)  # Analizar hasta 4 páginas de la foja
             for i in range(num_paginas):
                 pagina = doc[i]
-                mat    = fitz.Matrix(2.0, 2.0)  # resolución 2× nítida
+                mat    = fitz.Matrix(1.5, 1.5)  # resolución 1.5× nítida (150 DPI)
                 pixmap = pagina.get_pixmap(matrix=mat)
-                imagenes.append((pixmap.tobytes("png"), "image/png"))
-            doc.close()
+                imagenes.append((pixmap.tobytes("jpeg"), "image/jpeg"))
             return _analizar_con_vision(imagenes, contexto)
         except Exception as e:
-            doc.close()
             logger.error("Error al convertir PDF a imágenes: %s", e)
             return {"ok": False, "error": f"No se pudo convertir el PDF para análisis de visión: {e}"}
+        finally:
+            try:
+                doc.close()
+            except Exception:
+                pass
 
     return {"ok": False, "error": f"Formato no soportado: {ext}. Usá PDF, JPG, PNG o WEBP."}
 

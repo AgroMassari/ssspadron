@@ -340,8 +340,8 @@
             <div class="card-header">
                 <div class="card-icon icon-purple">📊</div>
                 <div>
-                    <div class="card-title">Verificador SSSALUD</div>
-                    <div class="card-desc">Consulta automática de cobertura por DNI desde un Excel</div>
+                    <div class="card-title">Verificación de Obra Social (SSSalud Intendencia)</div>
+                    <div class="card-desc">Consulta oficial en SSSalud Hospitales (HPGD) por DNI y completa el Excel con la Obra Social</div>
                 </div>
             </div>
 
@@ -358,19 +358,8 @@
                 <p class="archivo-nombre" id="nombre-sss">Ningún archivo seleccionado</p>
 
                 <button type="submit" class="btn btn-purple" id="btn-sss">
-                    🔎 INICIAR VERIFICACIÓN
+                    🔎 INICIAR VERIFICACIÓN SSSALUD
                 </button>
-
-                <div style="margin-top: 18px; padding: 12px 16px; background: rgba(108,99,255,0.06); border: 1px dashed rgba(108,99,255,0.3); border-radius: 8px; font-size: 0.83rem; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-                    <div>
-                        <strong style="color: #a594fd;">⚡ Modo Instantáneo (Base Local / PUCO)</strong>
-                        <div style="color: var(--muted); font-size: 0.78rem; margin-top: 2px;">Cargá el padrón oficial PUCO o un Excel previo para procesar 3.600 pacientes en 1 segundo</div>
-                    </div>
-                    <button type="button" onclick="document.getElementById('archivo-puco').click()" style="background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; white-space: nowrap;">
-                        📥 Importar PUCO
-                    </button>
-                    <input type="file" id="archivo-puco" accept=".xlsx,.csv,.txt" style="display:none" onchange="subirPadronPuco(this)">
-                </div>
 
             </form>
 
@@ -558,7 +547,7 @@
                 // 2. Polling hasta que el resultado esté listo
                 const jobId = data.job_id;
                 let intentos = 0;
-                const maxIntentos = 40; // 40 * 4s = 160s máx
+                const maxIntentos = 60; // 60 * 2.5s = 150s máx
 
                 const poll = setInterval(async () => {
                     intentos++;
@@ -574,6 +563,7 @@
                                 mostrarToast('✅ Análisis completado');
                             } else {
                                 mostrarToast('❌ ' + (estData.error || 'Error en el análisis.'), false);
+                                mostrarResultado('⚠️ ' + (estData.error || 'No se pudo completar el análisis de la foja.'));
                             }
                             btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
                             btnAnalizar.disabled  = false;
@@ -582,20 +572,21 @@
                             clearInterval(poll);
                             clearInterval(intervalo);
                             mostrarToast('❌ ' + (estData.error || 'Error al analizar.'), false);
+                            mostrarResultado('❌ Error: ' + (estData.error || 'Ocurrió un error al procesar el archivo.'));
                             btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
                             btnAnalizar.disabled  = false;
 
                         } else if (intentos >= maxIntentos) {
                             clearInterval(poll);
                             clearInterval(intervalo);
-                            mostrarToast('⏱️ El análisis tardó demasiado. Intentá con una imagen más pequeña.', false);
+                            mostrarToast('⏱️ El análisis tardó demasiado. Intentá nuevamente.', false);
                             btnAnalizar.innerHTML = '🔬 ANALIZAR FOJA';
                             btnAnalizar.disabled  = false;
                         }
                     } catch (e) {
                         console.error('Error al chequear estado foja', e);
                     }
-                }, 4000); // Check cada 4 segundos
+                }, 2500); // Check cada 2.5 segundos
 
             } catch (err) {
                 clearInterval(intervalo);
@@ -607,11 +598,19 @@
 
         function mostrarResultado(texto) {
             const contenedor = document.getElementById('texto-resultado');
-            // Usamos marked.js para convertir el Markdown (con tablas) en HTML prolijo
-            const html = marked.parse(texto);
-            contenedor.innerHTML = html;
+            try {
+                if (typeof marked !== 'undefined' && marked.parse) {
+                    contenedor.innerHTML = marked.parse(texto);
+                } else {
+                    contenedor.innerText = texto;
+                }
+            } catch (e) {
+                contenedor.innerText = texto;
+            }
             
-            document.getElementById('resultado-foja').style.display = 'block';
+            const seccion = document.getElementById('resultado-foja');
+            seccion.style.display = 'block';
+            seccion.scrollIntoView({ behavior: 'smooth', block: 'start' });
             contenedor.scrollTop = 0;
         }
 
@@ -816,26 +815,6 @@
             t.style.background  = ok ? '#1e2a20'      : '#2a1e1e';
             clearTimeout(t._t);
             t._t = setTimeout(() => t.style.display = 'none', 4500);
-        }
-
-        async function subirPadronPuco(input) {
-            if (!input.files || !input.files[0]) return;
-            const file = input.files[0];
-            const fd = new FormData();
-            fd.append('archivo', file);
-            mostrarToast('⏳ Importando padrón a la base de datos...', true);
-            try {
-                const res = await fetch('/importar_padron', { method: 'POST', body: fd });
-                const data = await res.json();
-                if (data.ok) {
-                    mostrarToast('✅ ' + data.mensaje, true);
-                } else {
-                    mostrarToast('❌ ' + (data.error || 'Error al importar padrón'), false);
-                }
-            } catch (err) {
-                mostrarToast('❌ Error de conexión al importar padrón', false);
-            }
-            input.value = '';
         }
 
         // Cargar lista solo si ya está autenticado (tiene clave en sesión)
