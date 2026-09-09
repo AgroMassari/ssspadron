@@ -1,8 +1,18 @@
 import os
+import re
 import time
 import uuid
 import threading
 from pathlib import Path
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import openpyxl
 from flask import Flask, request, render_template, send_file, jsonify
@@ -17,7 +27,7 @@ try:
         indexar_todos_los_documentos,
         DOCS_DIR,
     )
-    from whatsapp_api import verificar_webhook, extraer_mensaje, enviar_texto
+    from whatsapp_api import verificar_webhook, extraer_mensaje, enviar_texto, descargar_media, marcar_leido
     BOT_DISPONIBLE = True
 except ImportError as _e:
     BOT_DISPONIBLE = False
@@ -35,10 +45,15 @@ except ImportError as _e:
     def verificar_webhook(a):      return "Bot no disponible", 503
     def extraer_mensaje(p):        return None
     def enviar_texto(n, t):        return False
+    def descargar_media(m):        return None, None
+    def marcar_leido(m):           pass
     DOCS_DIR = Path(__file__).resolve().parent / "documentos"
     DOCS_DIR.mkdir(exist_ok=True)
 
-from sss_beneficiarios_hospitales.data import DataBeneficiariosSSSHospital
+try:
+    from sss_beneficiarios_hospitales.data import DataBeneficiariosSSSHospital
+except ImportError:
+    DataBeneficiariosSSSHospital = None
 
 
 # ============================================================
@@ -76,12 +91,10 @@ FILA_INICIO = 11
 COLUMNA_DNI = 1
 COLUMNA_OBRA_SOCIAL = 7
 
-# Antes: 0.5
-# Ahora: 0.1 segundo entre consultas
-ESPERA = 0.1
-
-# Guardar Excel cada X consultas
-GUARDAR_CADA = 50
+# Concurrencia y optimización ultrarrápida
+MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 30))
+CACHE_DNI = {}
+CACHE_LOCK = threading.Lock()
 
 app = Flask(__name__)
 
@@ -99,25 +112,231 @@ procesos = {}
 # SSSALUD
 # ============================================================
 
-def crear_conexion_sss():
+# ============================================================
+# CLIENTE SSSALUD ULTRARRÁPIDO & PARSER
+# ============================================================
 
+def parsear_respuesta_sss(html_text):
+    if not html_text:
+        return "ERROR CONSULTA"
+
+    # 1. NO AFILIADO
+    if (
+        "No se reportan datos para el NUMERO DE DOCUMENTO" in html_text
+        or "NO AFILIADO" in html_text.upper()
+    ) and "DATOS DE AFILIACION VIGENTE" not in html_text:
+        return "NO AFILIADO"
+
+    # 2. AFILIADO VIGENTE
+    if "DATOS DE AFILIACION VIGENTE" in html_text:
+        codigo = None
+        denominacion = None
+
+        # Regex rápido para Código de Obra Social
+        m_cod = re.search(
+            r'C(?:ó|&oacute;|o)digo\s+de\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
+            html_text,
+            re.I | re.DOTALL
+        )
+        if m_cod:
+            codigo = m_cod.group(1).strip()
+
+        # Regex rápido para Denominación Obra Social
+        m_den = re.search(
+            r'Denominaci(?:ó|&oacute;|o)n\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
+            html_text,
+            re.I | re.DOTALL
+        )
+        if m_den:
+            denominacion = m_den.group(1).strip()
+
+        # Fallback a BeautifulSoup si el regex no capturó ambos
+        if not (codigo and denominacion):
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html_text, 'html.parser')
+                for tr in soup.find_all('tr'):
+                    tds = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
+                    if len(tds) >= 2:
+                        k, v = tds[0], tds[1]
+                        k_lower = k.lower()
+                        if "código de obra social" in k_lower or "codigo de obra social" in k_lower:
+                            if not codigo and v:
+                                codigo = v
+                        elif "denominación obra social" in k_lower or "denominacion obra social" in k_lower:
+                            if not denominacion and v:
+                                denominacion = v
+            except Exception:
+                pass
+
+        if codigo and denominacion:
+            return f"{codigo} - {denominacion}"
+        elif denominacion:
+            return str(denominacion)
+        elif codigo:
+            return str(codigo)
+        return "AFILIADO - SIN OBRA SOCIAL IDENTIFICADA"
+
+    # Verificación secundaria por si acaso
+    if "No se reportan datos para el NUMERO DE DOCUMENTO" in html_text:
+        return "NO AFILIADO"
+
+    return "ERROR CONSULTA"
+
+
+def parsear_datos_fallback(datos):
+    afiliado = datos.get("afiliado")
+    if afiliado is False:
+        return "NO AFILIADO"
+    if afiliado is True:
+        tablas = datos.get("tablas", [])
+        codigo_obra_social = None
+        denominacion_obra_social = None
+        for tabla in tablas:
+            if str(tabla.get("name", "")).strip().upper() == "AFILIADO":
+                data = tabla.get("data", {})
+                codigo_obra_social = data.get("Código de Obra Social")
+                denominacion_obra_social = data.get("Denominación Obra Social")
+                break
+        if codigo_obra_social and denominacion_obra_social:
+            return f"{codigo_obra_social} - {denominacion_obra_social}"
+        if denominacion_obra_social:
+            return str(denominacion_obra_social)
+        if codigo_obra_social:
+            return str(codigo_obra_social)
+        return "AFILIADO - SIN OBRA SOCIAL IDENTIFICADA"
+    return "ERROR CONSULTA"
+
+
+class FastSSSaludClient:
+    LOGIN_URL = 'https://seguro.sssalud.gob.ar/login.php?b_publica=Acceso+Restringido+para+Hospitales&opc=bus650&user=HPGD'
+    QUERY_URL = 'https://seguro.sssalud.gob.ar/indexss.php?opc=bus650&user=HPGD&cat=consultas'
+
+    def __init__(self, user, password, pool_size=30):
+        self.user = user
+        self.password = password
+        self.session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=pool_size,
+            pool_maxsize=pool_size,
+            max_retries=Retry(total=2, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
+        )
+        self.session.mount('https://', adapter)
+        self.session.mount('http://', adapter)
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
+        self.logged_in = False
+        self._lock = threading.Lock()
+
+        # Fallback usando la librería tradicional si está instalada, desactivando esperas
+        self._fallback_sss = None
+        if DataBeneficiariosSSSHospital is not None:
+            try:
+                self._fallback_sss = DataBeneficiariosSSSHospital(user=user, password=password)
+                self._fallback_sss.pause_before_requests = 0
+                self._fallback_sss._save_response = lambda filename, resp: None
+            except Exception:
+                pass
+
+    def login(self):
+        with self._lock:
+            if self.logged_in:
+                return True
+            try:
+                params = {
+                    '_user_name_': self.user,
+                    '_pass_word_': self.password,
+                    'submitbtn': 'Ingresar'
+                }
+                res = self.session.post(self.LOGIN_URL, data=params, verify=False, timeout=15)
+                if 'usuario_logueado' in res.text or 'nro_doc' in res.text:
+                    self.logged_in = True
+                    return True
+
+                if self._fallback_sss:
+                    ok = self._fallback_sss.login()
+                    if ok:
+                        self.session.cookies.update(self._fallback_sss.session.cookies)
+                        self.logged_in = True
+                        return True
+            except Exception as e:
+                print(f"Error en login SSSalud: {e}")
+            return False
+
+    def query(self, dni):
+        dni_str = str(dni).strip()
+        if not dni_str:
+            return "ERROR CONSULTA"
+
+        # 1. Caché en memoria
+        with CACHE_LOCK:
+            if dni_str in CACHE_DNI:
+                return CACHE_DNI[dni_str]
+
+        # 2. Verificación de sesión
+        if not self.logged_in:
+            if not self.login():
+                return "ERROR CONSULTA"
+
+        params = {
+            'pagina_consulta': '',
+            'cuil_b': '',
+            'nro_doc': dni_str,
+            'B1': 'Consultar'
+        }
+
+        try:
+            res = self.session.post(self.QUERY_URL, data=params, verify=False, timeout=15)
+            text = res.text
+
+            # Re-autenticar si expiró la sesión
+            if 'Ingresar' in text and '_user_name_' in text:
+                with self._lock:
+                    self.logged_in = False
+                if self.login():
+                    res = self.session.post(self.QUERY_URL, data=params, verify=False, timeout=15)
+                    text = res.text
+
+            resultado = parsear_respuesta_sss(text)
+
+            # Fallback opcional a la librería original si el parseo dio error
+            if resultado == "ERROR CONSULTA" and self._fallback_sss:
+                try:
+                    res_fb = self._fallback_sss.query(dni_str)
+                    if res_fb.get("ok"):
+                        resultado = parsear_datos_fallback(res_fb.get("resultados", {}))
+                except Exception:
+                    pass
+
+            with CACHE_LOCK:
+                CACHE_DNI[dni_str] = resultado
+
+            return resultado
+
+        except Exception as e:
+            print(f"Error consultando DNI {dni_str}: {e}")
+            return "ERROR CONSULTA"
+
+
+# ============================================================
+# CONEXIÓN SSSALUD
+# ============================================================
+
+def crear_conexion_sss():
     usuario = os.environ.get("SSS_USER")
     password = os.environ.get("SSS_PASSWORD")
 
     if not usuario or not password:
-        raise RuntimeError(
-            "Faltan las variables SSS_USER y SSS_PASSWORD."
-        )
+        raise RuntimeError("Faltan las variables SSS_USER y SSS_PASSWORD.")
 
-    sss = DataBeneficiariosSSSHospital(
+    client = FastSSSaludClient(
         user=usuario,
-        password=password
+        password=password,
+        pool_size=MAX_WORKERS * 2
     )
-
-    # No guardar respuestas individuales
-    sss._save_response = lambda filename, resp: None
-
-    return sss
+    client.login()
+    return client
 
 
 # ============================================================
@@ -125,83 +344,22 @@ def crear_conexion_sss():
 # ============================================================
 
 def consultar_dni(sss, dni):
-
+    if isinstance(sss, FastSSSaludClient):
+        return sss.query(dni)
     try:
-
         resultado = sss.query(dni)
-
         ok = resultado.get("ok")
         datos = resultado.get("resultados", {})
-
         if not ok:
             return "ERROR CONSULTA"
-
-        afiliado = datos.get("afiliado")
-        tablas = datos.get("tablas", [])
-
-        # ----------------------------------------------------
-        # NO AFILIADO
-        # ----------------------------------------------------
-
-        if afiliado is False:
-            return "NO AFILIADO"
-
-        # ----------------------------------------------------
-        # AFILIADO
-        # ----------------------------------------------------
-
-        if afiliado is True:
-
-            codigo_obra_social = None
-            denominacion_obra_social = None
-
-            for tabla in tablas:
-
-                nombre_tabla = str(
-                    tabla.get("name", "")
-                ).strip().upper()
-
-                if nombre_tabla != "AFILIADO":
-                    continue
-
-                data = tabla.get("data", {})
-
-                codigo_obra_social = data.get(
-                    "Código de Obra Social"
-                )
-
-                denominacion_obra_social = data.get(
-                    "Denominación Obra Social"
-                )
-
-                break
-
-            if codigo_obra_social and denominacion_obra_social:
-
-                return (
-                    f"{codigo_obra_social} - "
-                    f"{denominacion_obra_social}"
-                )
-
-            if denominacion_obra_social:
-                return str(denominacion_obra_social)
-
-            if codigo_obra_social:
-                return str(codigo_obra_social)
-
-            return "AFILIADO - SIN OBRA SOCIAL IDENTIFICADA"
-
-        return "ERROR CONSULTA"
-
+        return parsear_datos_fallback(datos)
     except Exception as e:
-
         print("ERROR CONSULTA:", e)
-
         return "ERROR CONSULTA"
 
 
 # ============================================================
-# PROCESAMIENTO EN SEGUNDO PLANO
+# PROCESAMIENTO EN SEGUNDO PLANO (CONCURRENTE ULTRARRÁPIDO)
 # ============================================================
 
 def procesar_archivo(
@@ -209,56 +367,48 @@ def procesar_archivo(
     archivo_entrada,
     archivo_salida
 ):
-
     estado = procesos[id_proceso]
 
     try:
-
         # ----------------------------------------------------
-        # ABRIR EXCEL
+        # 1. ABRIR EXCEL
         # ----------------------------------------------------
-
-        wb = openpyxl.load_workbook(
-            archivo_entrada
-        )
-
+        estado["estado"] = "abriendo_excel"
+        wb = openpyxl.load_workbook(archivo_entrada)
         ws = wb.active
-
         ultima_fila = ws.max_row
 
         # ----------------------------------------------------
-        # BUSCAR FILAS A PROCESAR
-        #
-        # IMPORTANTE:
-        # AHORA VOLVEMOS A CONSULTAR TODAS LAS FILAS
-        # QUE TENGAN DNI.
-        #
-        # NO SE SALTEAN POR TENER OBRA SOCIAL.
+        # 2. BUSCAR FILAS A PROCESAR Y AGRUPAR POR DNI
         # ----------------------------------------------------
+        dni_a_filas = defaultdict(list)
+        total_filas = 0
 
-        filas_a_procesar = []
-
-        for fila in range(
-            FILA_INICIO,
-            ultima_fila + 1
-        ):
-
-            dni = ws.cell(
-                fila,
-                COLUMNA_DNI
-            ).value
-
-            if dni is None:
+        # Primero buscamos desde FILA_INICIO
+        for fila in range(FILA_INICIO, ultima_fila + 1):
+            dni_val = ws.cell(fila, COLUMNA_DNI).value
+            if dni_val is None:
                 continue
-
-            dni = str(dni).strip()
-
-            if dni == "":
+            dni_str = str(dni_val).strip()
+            if not dni_str or dni_str.lower() in ["none", "null", "nan"]:
                 continue
+            dni_a_filas[dni_str].append(fila)
+            total_filas += 1
 
-            filas_a_procesar.append(fila)
+        # Si no se encontraron filas en FILA_INICIO pero el archivo tiene filas antes
+        if total_filas == 0 and ultima_fila >= 2:
+            for fila in range(2, min(FILA_INICIO, ultima_fila + 1)):
+                dni_val = ws.cell(fila, COLUMNA_DNI).value
+                if dni_val is None:
+                    continue
+                dni_str = str(dni_val).strip()
+                if not dni_str or dni_str.lower() in ["none", "null", "nan"]:
+                    continue
+                dni_a_filas[dni_str].append(fila)
+                total_filas += 1
 
-        total = len(filas_a_procesar)
+        dnis_unicos = list(dni_a_filas.keys())
+        total = total_filas
 
         estado["total"] = total
         estado["procesadas"] = 0
@@ -266,219 +416,121 @@ def procesar_archivo(
 
         print("")
         print("====================================================")
-        print("       PROCESAMIENTO WEB SSSALUD")
+        print("       PROCESAMIENTO SSSALUD ULTRARRÁPIDO")
         print("====================================================")
         print("Última fila:", ultima_fila)
-        print("Total a consultar:", total)
+        print("Total de registros a consultar:", total)
+        print("Total de DNIs únicos:", len(dnis_unicos))
+        print("Hilos concurrentes (Workers):", MAX_WORKERS)
         print("====================================================")
 
-        # ----------------------------------------------------
-        # CONEXIÓN
-        # ----------------------------------------------------
+        if total == 0:
+            wb.save(archivo_salida)
+            estado["estado"] = "terminado"
+            estado["porcentaje"] = 100
+            estado["archivo"] = Path(archivo_salida).name
+            estado["segundos"] = 0
+            estado["estimado_restante"] = 0
+            return
 
-        estado["estado"] = "conectando"
-
+        # ----------------------------------------------------
+        # 3. CONEXIÓN SSSALUD
+        # ----------------------------------------------------
+        estado["estado"] = "conectando_sssalud"
         sss = crear_conexion_sss()
-
         estado["estado"] = "consultando"
 
         # ----------------------------------------------------
-        # CONTADORES
+        # 4. PROCESAMIENTO MULTIHILO CONCURRENTE
         # ----------------------------------------------------
-
-        consultas = 0
-        afiliados = 0
-        no_afiliados = 0
-        errores = 0
-
         inicio = time.time()
+        lock_estado = threading.Lock()
+        resultados_dni = {}
+
+        def procesar_un_dni(dni):
+            res = consultar_dni(sss, dni)
+            filas = dni_a_filas[dni]
+            cant = len(filas)
+
+            with lock_estado:
+                resultados_dni[dni] = res
+                estado["procesadas"] += cant
+                estado["consultas"] += 1
+                estado["fila"] = filas[-1]
+                estado["dni"] = dni
+                estado["ultimo_resultado"] = res
+
+                if res == "NO AFILIADO":
+                    estado["no_afiliados"] += cant
+                elif res == "ERROR CONSULTA":
+                    estado["errores"] += cant
+                else:
+                    estado["afiliados"] += cant
+
+                transcurrido = time.time() - inicio
+                estado["segundos"] = round(transcurrido, 1)
+
+                if total > 0:
+                    estado["porcentaje"] = min(100.0, round((estado["procesadas"] / total) * 100, 1))
+                    if estado["procesadas"] > 0:
+                        promedio = transcurrido / estado["procesadas"]
+                        restantes = max(0, total - estado["procesadas"])
+                        estado["estimado_restante"] = round(promedio * restantes, 1)
+
+            print(f"DNI {dni} -> {res} ({cant} filas)")
+            return dni, res
+
+        # Ejecutar todas las consultas de DNIs únicos en paralelo
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futuros = [executor.submit(procesar_un_dni, d) for d in dnis_unicos]
+            for f in as_completed(futuros):
+                try:
+                    f.result()
+                except Exception as ex_hilo:
+                    print(f"Error en hilo de consulta: {ex_hilo}")
 
         # ----------------------------------------------------
-        # PROCESAMIENTO
+        # 5. ESCRIBIR RESULTADOS EN EXCEL
         # ----------------------------------------------------
-
-        for indice, fila in enumerate(
-            filas_a_procesar,
-            start=1
-        ):
-
-            dni = ws.cell(
-                fila,
-                COLUMNA_DNI
-            ).value
-
-            dni = str(dni).strip()
-
-            estado["fila"] = fila
-            estado["dni"] = dni
-            estado["estado"] = "consultando"
-
-            print(
-                f"[{indice}/{total}] "
-                f"Fila {fila} | DNI {dni}"
-            )
-
-            # ------------------------------------------------
-            # CONSULTA
-            # ------------------------------------------------
-
-            resultado_final = consultar_dni(
-                sss,
-                dni
-            )
-
-            # ------------------------------------------------
-            # CONTADORES
-            # ------------------------------------------------
-
-            if resultado_final == "NO AFILIADO":
-
-                no_afiliados += 1
-
-            elif resultado_final == "ERROR CONSULTA":
-
-                errores += 1
-
-            else:
-
-                afiliados += 1
-
-            consultas += 1
-
-            # ------------------------------------------------
-            # ESCRIBIR RESULTADO
-            # ------------------------------------------------
-
-            ws.cell(
-                fila,
-                COLUMNA_OBRA_SOCIAL
-            ).value = resultado_final
-
-            # ------------------------------------------------
-            # ACTUALIZAR ESTADO WEB
-            # ------------------------------------------------
-
-            estado["procesadas"] = indice
-            estado["consultas"] = consultas
-            estado["afiliados"] = afiliados
-            estado["no_afiliados"] = no_afiliados
-            estado["errores"] = errores
-            estado["ultimo_resultado"] = resultado_final
-
-            # ------------------------------------------------
-            # PORCENTAJE
-            # ------------------------------------------------
-
-            if total > 0:
-
-                estado["porcentaje"] = round(
-                    (indice / total) * 100,
-                    1
-                )
-
-            else:
-
-                estado["porcentaje"] = 100
-
-            # ------------------------------------------------
-            # TIEMPO
-            # ------------------------------------------------
-
-            tiempo_transcurrido = time.time() - inicio
-
-            estado["segundos"] = round(
-                tiempo_transcurrido,
-                1
-            )
-
-            if indice > 0:
-
-                promedio = (
-                    tiempo_transcurrido / indice
-                )
-
-                restantes = total - indice
-
-                estado["estimado_restante"] = round(
-                    promedio * restantes,
-                    1
-                )
-
-            print(
-                f"Resultado: {resultado_final}"
-            )
-
-            # ------------------------------------------------
-            # GUARDADO PERIÓDICO
-            # ------------------------------------------------
-
-            if consultas % GUARDAR_CADA == 0:
-
-                wb.save(
-                    archivo_salida
-                )
-
-                print(
-                    ">>> PROGRESO GUARDADO"
-                )
-
-            # ------------------------------------------------
-            # ESPERA PEQUEÑA
-            # ------------------------------------------------
-
-            if ESPERA > 0:
-
-                time.sleep(
-                    ESPERA
-                )
+        print("Escribiendo resultados en memoria...")
+        for dni, filas in dni_a_filas.items():
+            res_dni = resultados_dni.get(dni, "ERROR CONSULTA")
+            for fila in filas:
+                ws.cell(fila, COLUMNA_OBRA_SOCIAL).value = res_dni
 
         # ----------------------------------------------------
-        # GUARDADO FINAL
+        # 6. GUARDADO FINAL ÚNICO
         # ----------------------------------------------------
-
         estado["estado"] = "guardando"
-
-        wb.save(
-            archivo_salida
-        )
+        wb.save(archivo_salida)
 
         # ----------------------------------------------------
-        # FINALIZADO
+        # 7. FINALIZADO
         # ----------------------------------------------------
-
         estado["estado"] = "terminado"
-
         estado["procesadas"] = total
         estado["porcentaje"] = 100
-        estado["archivo"] = Path(
-            archivo_salida
-        ).name
-
-        estado["segundos"] = round(
-            time.time() - inicio,
-            1
-        )
-
+        estado["archivo"] = Path(archivo_salida).name
+        estado["segundos"] = round(time.time() - inicio, 1)
         estado["estimado_restante"] = 0
 
         print("")
         print("====================================================")
-        print("              PROCESO TERMINADO")
+        print("          PROCESAMIENTO TERMINADO EXITOSAMENTE")
         print("====================================================")
-        print("Consultas:", consultas)
-        print("Afiliados:", afiliados)
-        print("No afiliados:", no_afiliados)
-        print("Errores:", errores)
+        print(f"Tiempo total: {estado['segundos']} segundos")
+        print("Registros procesados:", estado["procesadas"])
+        print("Afiliados:", estado["afiliados"])
+        print("No afiliados:", estado["no_afiliados"])
+        print("Errores:", estado["errores"])
         print("====================================================")
 
     except Exception as e:
-
         print("")
         print("====================================================")
-        print("ERROR GENERAL")
+        print("ERROR GENERAL EN PROCESAMIENTO")
         print("====================================================")
         print(e)
-
         estado["estado"] = "error"
         estado["error"] = str(e)
 
@@ -701,16 +753,73 @@ def webhook_recibir():
 
     if mensaje:
 
-        numero = mensaje["numero"]
-        texto  = mensaje["texto"]
+        numero     = mensaje["numero"]
+        tipo       = mensaje.get("tipo", "text")
+        message_id = mensaje.get("message_id")
 
-        # Procesamos en hilo separado para no bloquear la respuesta a Meta
-        def responder_async():
-            respuesta = responder(texto)
-            enviar_texto(numero, respuesta)
+        if message_id:
+            marcar_leido(message_id)
 
-        hilo = threading.Thread(target=responder_async, daemon=True)
-        hilo.start()
+        # ── CASO 1: Mensaje de texto ────────────────────────
+        if tipo == "text":
+            texto = mensaje.get("texto", "")
+
+            def responder_texto_async():
+                respuesta = responder(texto)
+                enviar_texto(numero, respuesta)
+
+            threading.Thread(target=responder_texto_async, daemon=True).start()
+
+        # ── CASO 2: Foja quirúrgica (imagen o PDF) ──────────
+        elif tipo in ["image", "document"]:
+            media_id = mensaje.get("media_id")
+            filename = mensaje.get("filename") or ("foja.jpg" if tipo == "image" else "foja.pdf")
+
+            def procesar_foja_whatsapp_async():
+                try:
+                    enviar_texto(
+                        numero,
+                        "⏳ Recibí la foja quirúrgica. La estoy analizando con el nomenclador oficial e instructivos..."
+                    )
+
+                    contenido_bytes, mime = descargar_media(media_id)
+                    if not contenido_bytes:
+                        enviar_texto(
+                            numero,
+                            "❌ No se pudo descargar el archivo de WhatsApp. Por favor volvé a enviarlo."
+                        )
+                        return
+
+                    ext = Path(filename).suffix.lower()
+                    if not ext:
+                        ext = ".png" if tipo == "image" else ".pdf"
+
+                    tmp_path = FOJAS_DIR / f"wa_{uuid.uuid4().hex}{ext}"
+                    tmp_path.write_bytes(contenido_bytes)
+
+                    try:
+                        resultado = analizar_foja_quirurgica(tmp_path)
+                        if resultado.get("ok"):
+                            enviar_texto(
+                                numero,
+                                resultado.get("analisis", "Análisis completado.")
+                            )
+                        else:
+                            enviar_texto(
+                                numero,
+                                f"❌ Error en análisis: {resultado.get('error', 'No se pudo interpretar la foja.')}"
+                            )
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
+
+                except Exception as ex:
+                    print(f"Error procesando foja WhatsApp: {ex}")
+                    enviar_texto(
+                        numero,
+                        "❌ Ocurrió un error inesperado al analizar el documento."
+                    )
+
+            threading.Thread(target=procesar_foja_whatsapp_async, daemon=True).start()
 
     # Meta requiere siempre un 200 rápido
     return jsonify({"status": "ok"}), 200

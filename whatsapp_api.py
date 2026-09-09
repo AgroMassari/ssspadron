@@ -64,8 +64,8 @@ def verificar_webhook(args: dict) -> tuple:
 
 def extraer_mensaje(payload: dict) -> dict | None:
     """
-    Extrae el texto y el número de teléfono del payload JSON de WhatsApp.
-    Retorna un dict con { "numero": str, "texto": str } o None si no hay mensaje.
+    Extrae el mensaje (texto, imagen o documento PDF) y el número de teléfono del payload JSON de WhatsApp.
+    Retorna un dict con { "numero": str, "tipo": str, ... } o None si no hay mensaje válido.
     """
     try:
         entry   = payload.get("entry", [{}])[0]
@@ -76,21 +76,103 @@ def extraer_mensaje(payload: dict) -> dict | None:
         if not mensaje:
             return None
 
-        tipo = mensaje.get("type")
-        if tipo != "text":
-            # Por ahora solo procesamos texto
+        numero     = mensaje.get("from")
+        message_id = mensaje.get("id")
+        tipo       = mensaje.get("type")
+
+        if not numero:
             return None
 
-        numero = mensaje.get("from")
-        texto  = mensaje.get("text", {}).get("body", "").strip()
+        if tipo == "text":
+            texto = mensaje.get("text", {}).get("body", "").strip()
+            if not texto:
+                return None
+            return {
+                "numero":     numero,
+                "tipo":       "text",
+                "texto":      texto,
+                "message_id": message_id,
+            }
 
-        if not numero or not texto:
-            return None
+        elif tipo == "image":
+            img_obj   = mensaje.get("image", {})
+            media_id  = img_obj.get("id")
+            mime_type = img_obj.get("mime_type", "image/jpeg")
+            caption   = img_obj.get("caption", "").strip()
+            return {
+                "numero":     numero,
+                "tipo":       "image",
+                "media_id":   media_id,
+                "mime_type":  mime_type,
+                "filename":   "foja.jpg",
+                "texto":      caption,
+                "message_id": message_id,
+            }
 
-        return {"numero": numero, "texto": texto}
+        elif tipo == "document":
+            doc_obj   = mensaje.get("document", {})
+            media_id  = doc_obj.get("id")
+            mime_type = doc_obj.get("mime_type", "application/pdf")
+            filename  = doc_obj.get("filename", "foja.pdf")
+            caption   = doc_obj.get("caption", "").strip()
+            return {
+                "numero":     numero,
+                "tipo":       "document",
+                "media_id":   media_id,
+                "mime_type":  mime_type,
+                "filename":   filename,
+                "texto":      caption,
+                "message_id": message_id,
+            }
+
+        return None
 
     except (IndexError, KeyError, TypeError):
         return None
+
+
+# ============================================================
+# DESCARGAR ARCHIVO MULTIMEDIA (IMAGEN O PDF)
+# ============================================================
+
+def descargar_media(media_id: str) -> tuple[bytes | None, str | None]:
+    """
+    Descarga el contenido multimedia de WhatsApp (imagen o PDF) mediante la Graph API de Meta.
+    Retorna (bytes_contenido, mime_type) o (None, None) en caso de fallo.
+    """
+    if not media_id:
+        return None, None
+
+    try:
+        token    = _get_whatsapp_token()
+        headers  = {"Authorization": f"Bearer {token}"}
+        url_info = f"https://graph.facebook.com/v20.0/{media_id}"
+
+        # 1. Obtener la URL temporal de descarga desde Meta
+        r_info = requests.get(url_info, headers=headers, timeout=15)
+        if r_info.status_code != 200:
+            logger.error("Error al consultar URL del medio en Meta (%s): %s", r_info.status_code, r_info.text)
+            return None, None
+
+        datos        = r_info.json()
+        download_url = datos.get("url")
+        mime_type    = datos.get("mime_type")
+
+        if not download_url:
+            logger.error("No se encontró URL de descarga en la respuesta de Meta: %s", datos)
+            return None, None
+
+        # 2. Descargar el archivo binario
+        r_file = requests.get(download_url, headers=headers, timeout=30)
+        if r_file.status_code == 200:
+            return r_file.content, mime_type
+        else:
+            logger.error("Error al descargar archivo binario de Meta (%s)", r_file.status_code)
+            return None, None
+
+    except Exception as e:
+        logger.error("Excepción al descargar multimedia de WhatsApp: %s", e)
+        return None, None
 
 
 # ============================================================

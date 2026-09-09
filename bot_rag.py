@@ -29,7 +29,7 @@ CHROMA_DIR.mkdir(exist_ok=True)
 CHUNK_SIZE      = 1000
 CHUNK_OVERLAP   = 150
 MODEL_NAME      = "gpt-4o-mini"        # Para respuestas de texto (más económico)
-MODEL_VISION    = "gpt-4o-mini"             # Para análisis de imágenes (visión completa y más económica)
+MODEL_VISION    = os.environ.get("OPENAI_MODEL_VISION", "gpt-4o")  # gpt-4o para visión médica precisa
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 EXTENSIONES_IMAGEN = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -365,9 +365,13 @@ def _obtener_contexto_rag() -> str:
     return "\n\n".join(partes)
 
 
-def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> dict:
+def _analizar_con_vision(imagenes, contexto: str, mime_type: str = "image/jpeg") -> dict:
     """
-    Envía la imagen a GPT-4o Vision con el contexto de nomencladores.
+    Envía una o más imágenes a GPT-4o Vision con el contexto de nomencladores.
+    Acepta:
+      - bytes directos (junto con mime_type)
+      - tupla (bytes, mime_type)
+      - lista de tuplas [(bytes, mime_type), ...] para documentos multi-página
     Retorna {'ok': True, 'analisis': str} o {'ok': False, 'error': str}.
     """
     import base64
@@ -377,14 +381,29 @@ def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> 
     if not api_key:
         return {"ok": False, "error": "Falta la variable de entorno OPENAI_API_KEY."}
 
-    client    = OpenAI(api_key=api_key)
-    b64_image = base64.b64encode(imagen_bytes).decode("utf-8")
+    client = OpenAI(api_key=api_key)
+
+    # Normalizar a lista de tuplas (bytes, mime_type)
+    lista_imagenes = []
+    if isinstance(imagenes, list):
+        for item in imagenes:
+            if isinstance(item, tuple):
+                lista_imagenes.append(item)
+            else:
+                lista_imagenes.append((item, "image/png"))
+    elif isinstance(imagenes, tuple):
+        lista_imagenes.append(imagenes)
+    else:
+        lista_imagenes.append((imagenes, mime_type or "image/jpeg"))
+
+    if not lista_imagenes:
+        return {"ok": False, "error": "No se proporcionaron imágenes para analizar."}
 
     # Contexto: nomenclador completo (txt) + instructivos via RAG (pdfs)
-    contexto = _obtener_contexto_rag()
+    contexto_sistema = contexto or _obtener_contexto_rag()
 
-    if contexto.strip():
-        seccion_contexto = contexto
+    if contexto_sistema.strip():
+        seccion_contexto = contexto_sistema
     else:
         seccion_contexto = (
             "⚠️ No hay nomencladores cargados en el sistema. "
@@ -393,26 +412,31 @@ def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> 
 
     prompt = PROMPT_FOJA_VISION.format(context=seccion_contexto)
 
+    # Construir contenido multimodal: colocar imágenes primero para enfocar la atención visual
+    elementos_contenido = []
+    for img_bytes, m_type in lista_imagenes:
+        b64_image = base64.b64encode(img_bytes).decode("utf-8")
+        elementos_contenido.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{m_type};base64,{b64_image}",
+                "detail": "auto",
+            },
+        })
+
+    elementos_contenido.append({"type": "text", "text": prompt})
+
     try:
         respuesta = client.chat.completions.create(
             model=MODEL_VISION,
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime_type};base64,{b64_image}",
-                                "detail": "auto",   # auto = más rápido, evita timeouts
-                            },
-                        },
-                    ],
+                    "content": elementos_contenido,
                 }
             ],
-            max_tokens=2000,
-            timeout=55,   # 55 seg (Render free corta a 60s)
+            max_tokens=2500,
+            timeout=55,
         )
         return {"ok": True, "analisis": respuesta.choices[0].message.content}
     except Exception as e:
@@ -428,41 +452,50 @@ def _analizar_con_vision(imagen_bytes: bytes, mime_type: str, contexto: str) -> 
                     messages=[
                         {
                             "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:{mime_type};base64,{b64_image}",
-                                        "detail": "auto",
-                                    },
-                                },
-                            ],
+                            "content": elementos_contenido,
                         }
                     ],
-                    max_tokens=2000,
+                    max_tokens=2500,
                     timeout=55,
                 )
                 return {"ok": True, "analisis": respuesta.choices[0].message.content}
             except Exception as e2:
-                logger.error("Error en reintento GPT-4o Vision: %s", e2)
+                logger.error("Error en reintento Vision: %s", e2)
                 return {
                     "ok": False,
                     "error": "La API de OpenAI está temporalmente sobrecargada. Esperá unos minutos e intentá de nuevo."
                 }
-        logger.error("Error en GPT-4o Vision: %s", e)
-        return {"ok": False, "error": f"Error al analizar la imagen: {e}"}
+        logger.error("Error en GPT Vision: %s", e)
+        return {"ok": False, "error": f"Error al analizar la foja con visión: {e}"}
 
 
-def analizar_foja_quirurgica(ruta: Path) -> dict:
+def analizar_foja_quirurgica(ruta) -> dict:
     """
     Analiza una foja quirúrgica. Acepta:
-      - Imagen directa (JPG, PNG, WEBP)  → GPT-4o Vision
-      - PDF con texto extraíble          → GPT-4o texto + RAG
-      - PDF escaneado (sin texto)        → convierte a imagen → GPT-4o Vision
+      - Path o str hacia archivo de imagen o PDF
+      - bytes directos (detecta automáticamente PDF o imagen)
+      - PDF escaneado o digital → convierte páginas a imágenes (hasta 4 págs) y analiza con Vision
 
     Devuelve {'ok': bool, 'analisis': str} o {'ok': False, 'error': str}.
     """
+    # Si viene en bytes
+    if isinstance(ruta, bytes):
+        import tempfile
+        ext = ".pdf" if ruta.startswith(b"%PDF") else ".png"
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
+            f.write(ruta)
+            tmp_file = Path(f.name)
+        try:
+            return analizar_foja_quirurgica(tmp_file)
+        finally:
+            tmp_file.unlink(missing_ok=True)
+
+    if isinstance(ruta, str):
+        ruta = Path(ruta)
+
+    if not ruta.exists():
+        return {"ok": False, "error": f"El archivo no existe: {ruta.name}"}
+
     ext      = ruta.suffix.lower()
     contexto = _obtener_contexto_rag()
 
@@ -473,10 +506,10 @@ def analizar_foja_quirurgica(ruta: Path) -> dict:
         try:
             imagen_bytes = ruta.read_bytes()
             mime_type    = MIME_TIPOS.get(ext, "image/jpeg")
-            return _analizar_con_vision(imagen_bytes, mime_type, contexto)
+            return _analizar_con_vision([(imagen_bytes, mime_type)], contexto)
         except Exception as e:
             logger.error("Error al leer imagen: %s", e)
-            return {"ok": False, "error": "No se pudo leer el archivo de imagen."}
+            return {"ok": False, "error": f"No se pudo leer el archivo de imagen: {e}"}
 
     # ════════════════════════════════════════════════════════
     # CASO B: PDF
@@ -491,8 +524,11 @@ def analizar_foja_quirurgica(ruta: Path) -> dict:
             logger.error("Error al leer PDF: %s", e)
             return {"ok": False, "error": "No se pudo leer el PDF. Verificá que sea un archivo válido."}
 
-        # ── B1: PDF con texto extraíble ──────────────────────
-        if texto_foja:
+        # ── B1: Verificar si tiene texto clínico estructurado extenso ──
+        palabras_clinicas = ["cirug", "proced", "diagn", "quir", "anest", "operatorio", "téc", "técnica", "protocolo"]
+        tiene_texto_real  = len(texto_foja) > 300 and any(p in texto_foja.lower() for p in palabras_clinicas)
+
+        if tiene_texto_real:
             from langchain.schema import HumanMessage
             try:
                 llm      = _obtener_llm()
@@ -501,23 +537,24 @@ def analizar_foja_quirurgica(ruta: Path) -> dict:
                 doc.close()
                 return {"ok": True, "analisis": response.content}
             except Exception as e:
-                doc.close()
-                logger.error("Error en LLM con texto: %s", e)
-                return {"ok": False, "error": "Error al generar el análisis. Verificá la OPENAI_API_KEY."}
+                logger.warning("Fallo en análisis de texto directo, pasando a renderizar con Vision: %s", e)
 
-        # ── B2: PDF escaneado → convertir a imagen con PyMuPDF ──
-        logger.info("PDF sin texto. Usando Vision en la primera página.")
+        # ── B2: Fojas escaneadas, manuscritas o formularios → Renderizar a imágenes y pasar a Vision ──
+        logger.info("Procesando PDF con Vision multimodal...")
         try:
-            pagina    = doc[0]
-            mat       = fitz.Matrix(2.0, 2.0)  # resolución 2×
-            pixmap    = pagina.get_pixmap(matrix=mat)
-            img_bytes = pixmap.tobytes("png")
+            imagenes = []
+            num_paginas = min(len(doc), 4)  # Analizar hasta 4 páginas de la foja
+            for i in range(num_paginas):
+                pagina = doc[i]
+                mat    = fitz.Matrix(2.0, 2.0)  # resolución 2× nítida
+                pixmap = pagina.get_pixmap(matrix=mat)
+                imagenes.append((pixmap.tobytes("png"), "image/png"))
             doc.close()
-            return _analizar_con_vision(img_bytes, "image/png", contexto)
+            return _analizar_con_vision(imagenes, contexto)
         except Exception as e:
             doc.close()
-            logger.error("Error al convertir PDF escaneado: %s", e)
-            return {"ok": False, "error": "No se pudo convertir el PDF escaneado a imagen."}
+            logger.error("Error al convertir PDF a imágenes: %s", e)
+            return {"ok": False, "error": f"No se pudo convertir el PDF para análisis de visión: {e}"}
 
     return {"ok": False, "error": f"Formato no soportado: {ext}. Usá PDF, JPG, PNG o WEBP."}
 
