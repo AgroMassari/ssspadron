@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from requests.adapters import HTTPAdapter
+import urllib3
 from urllib3.util.retry import Retry
 import sqlite3
 import queue
