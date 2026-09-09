@@ -91,8 +91,8 @@ FILA_INICIO = 11
 COLUMNA_DNI = 1
 COLUMNA_OBRA_SOCIAL = 7
 
-# Concurrencia y optimización ultrarrápida
-MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 30))
+# Concurrencia óptima para SSSalud (6 a 8 hilos evitan bloqueo de sesión PHP y error 503)
+MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 8))
 CACHE_DNI = {}
 CACHE_LOCK = threading.Lock()
 
@@ -102,15 +102,36 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 
 
 # ============================================================
+# LIMPIEZA Y VALIDACIÓN DE DNI
+# ============================================================
+
+def limpiar_dni(val):
+    """
+    Normaliza y valida un DNI:
+    - Extrae únicamente dígitos numéricos.
+    - Elimina sufijo decimal '.0' proveniente de celdas float en Excel.
+    - Ignora filas vacías, encabezados, pies de página o textos alfanuméricos.
+    - Valida longitud típica de DNI argentino (entre 5 y 9 dígitos).
+    """
+    if val is None:
+        return None
+    val_str = str(val).strip()
+    if not val_str or val_str.lower() in ["none", "null", "nan", "total", "totales"]:
+        return None
+    if val_str.endswith(".0"):
+        val_str = val_str[:-2].strip()
+    digitos = re.sub(r'\D', '', val_str)
+    if 5 <= len(digitos) <= 9:
+        return digitos
+    return None
+
+
+# ============================================================
 # ESTADO DE PROCESAMIENTO
 # ============================================================
 
 procesos = {}
 
-
-# ============================================================
-# SSSALUD
-# ============================================================
 
 # ============================================================
 # CLIENTE SSSALUD ULTRARRÁPIDO & PARSER
@@ -132,7 +153,6 @@ def parsear_respuesta_sss(html_text):
         codigo = None
         denominacion = None
 
-        # Regex rápido para Código de Obra Social
         m_cod = re.search(
             r'C(?:ó|&oacute;|o)digo\s+de\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
             html_text,
@@ -141,7 +161,6 @@ def parsear_respuesta_sss(html_text):
         if m_cod:
             codigo = m_cod.group(1).strip()
 
-        # Regex rápido para Denominación Obra Social
         m_den = re.search(
             r'Denominaci(?:ó|&oacute;|o)n\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
             html_text,
@@ -177,7 +196,7 @@ def parsear_respuesta_sss(html_text):
             return str(codigo)
         return "AFILIADO - SIN OBRA SOCIAL IDENTIFICADA"
 
-    # Verificación secundaria por si acaso
+    # Verificación secundaria
     if "No se reportan datos para el NUMERO DE DOCUMENTO" in html_text:
         return "NO AFILIADO"
 
@@ -212,24 +231,25 @@ class FastSSSaludClient:
     LOGIN_URL = 'https://seguro.sssalud.gob.ar/login.php?b_publica=Acceso+Restringido+para+Hospitales&opc=bus650&user=HPGD'
     QUERY_URL = 'https://seguro.sssalud.gob.ar/indexss.php?opc=bus650&user=HPGD&cat=consultas'
 
-    def __init__(self, user, password, pool_size=30):
+    def __init__(self, user, password, pool_size=16):
         self.user = user
         self.password = password
         self.session = requests.Session()
         adapter = HTTPAdapter(
             pool_connections=pool_size,
             pool_maxsize=pool_size,
-            max_retries=Retry(total=2, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
+            max_retries=Retry(total=2, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
         )
         self.session.mount('https://', adapter)
         self.session.mount('http://', adapter)
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         })
         self.logged_in = False
         self._lock = threading.Lock()
 
-        # Fallback usando la librería tradicional si está instalada, desactivando esperas
+        # Fallback usando la librería tradicional si está instalada
         self._fallback_sss = None
         if DataBeneficiariosSSSHospital is not None:
             try:
@@ -239,9 +259,9 @@ class FastSSSaludClient:
             except Exception:
                 pass
 
-    def login(self):
+    def login(self, force=False):
         with self._lock:
-            if self.logged_in:
+            if self.logged_in and not force:
                 return True
             try:
                 params = {
@@ -250,7 +270,7 @@ class FastSSSaludClient:
                     'submitbtn': 'Ingresar'
                 }
                 res = self.session.post(self.LOGIN_URL, data=params, verify=False, timeout=15)
-                if 'usuario_logueado' in res.text or 'nro_doc' in res.text:
+                if 'usuario_logueado' in res.text or 'nro_doc' in res.text or 'cat=consultas' in res.text:
                     self.logged_in = True
                     return True
 
@@ -262,6 +282,7 @@ class FastSSSaludClient:
                         return True
             except Exception as e:
                 print(f"Error en login SSSalud: {e}")
+            self.logged_in = False
             return False
 
     def query(self, dni):
@@ -269,12 +290,12 @@ class FastSSSaludClient:
         if not dni_str:
             return "ERROR CONSULTA"
 
-        # 1. Caché en memoria
+        # 1. Caché en memoria (NO cacheamos 'ERROR CONSULTA' para no perpetuar fallos temporales)
         with CACHE_LOCK:
-            if dni_str in CACHE_DNI:
+            if dni_str in CACHE_DNI and CACHE_DNI[dni_str] != "ERROR CONSULTA":
                 return CACHE_DNI[dni_str]
 
-        # 2. Verificación de sesión
+        # 2. Verificación inicial de sesión
         if not self.logged_in:
             if not self.login():
                 return "ERROR CONSULTA"
@@ -286,37 +307,49 @@ class FastSSSaludClient:
             'B1': 'Consultar'
         }
 
-        try:
-            res = self.session.post(self.QUERY_URL, data=params, verify=False, timeout=15)
-            text = res.text
+        # Intentar hasta 2 veces con re-login si el servidor rate-limita o desconecta la sesión
+        for intento in range(2):
+            try:
+                res = self.session.post(self.QUERY_URL, data=params, verify=False, timeout=12)
+                text = res.text
 
-            # Re-autenticar si expiró la sesión
-            if 'Ingresar' in text and '_user_name_' in text:
-                with self._lock:
-                    self.logged_in = False
-                if self.login():
-                    res = self.session.post(self.QUERY_URL, data=params, verify=False, timeout=15)
-                    text = res.text
+                # Si el servidor responde con 5xx, 429 o pide re-login
+                necesita_relogin = (
+                    res.status_code in [401, 403, 429, 500, 502, 503, 504]
+                    or ('Ingresar' in text and '_user_name_' in text)
+                )
 
-            resultado = parsear_respuesta_sss(text)
+                if necesita_relogin:
+                    time.sleep(0.4 * (intento + 1))
+                    self.login(force=True)
+                    continue
 
-            # Fallback opcional a la librería original si el parseo dio error
-            if resultado == "ERROR CONSULTA" and self._fallback_sss:
-                try:
-                    res_fb = self._fallback_sss.query(dni_str)
-                    if res_fb.get("ok"):
-                        resultado = parsear_datos_fallback(res_fb.get("resultados", {}))
-                except Exception:
-                    pass
+                resultado = parsear_respuesta_sss(text)
 
-            with CACHE_LOCK:
-                CACHE_DNI[dni_str] = resultado
+                if resultado != "ERROR CONSULTA":
+                    with CACHE_LOCK:
+                        CACHE_DNI[dni_str] = resultado
+                    return resultado
 
-            return resultado
+                # Fallback con librería original
+                if self._fallback_sss:
+                    try:
+                        res_fb = self._fallback_sss.query(dni_str)
+                        if res_fb.get("ok"):
+                            resultado = parsear_datos_fallback(res_fb.get("resultados", {}))
+                            if resultado != "ERROR CONSULTA":
+                                with CACHE_LOCK:
+                                    CACHE_DNI[dni_str] = resultado
+                                return resultado
+                    except Exception:
+                        pass
 
-        except Exception as e:
-            print(f"Error consultando DNI {dni_str}: {e}")
-            return "ERROR CONSULTA"
+            except Exception as e:
+                print(f"Error consultando DNI {dni_str} (intento {intento+1}): {e}")
+                time.sleep(0.4)
+                self.login(force=True)
+
+        return "ERROR CONSULTA"
 
 
 # ============================================================
@@ -359,7 +392,7 @@ def consultar_dni(sss, dni):
 
 
 # ============================================================
-# PROCESAMIENTO EN SEGUNDO PLANO (CONCURRENTE ULTRARRÁPIDO)
+# PROCESAMIENTO EN SEGUNDO PLANO (CONCURRENTE ROBUSTO)
 # ============================================================
 
 def procesar_archivo(
@@ -379,32 +412,53 @@ def procesar_archivo(
         ultima_fila = ws.max_row
 
         # ----------------------------------------------------
-        # 2. BUSCAR FILAS A PROCESAR Y AGRUPAR POR DNI
+        # 2. DETERMINAR COLUMNA DESTINO DE OBRA SOCIAL
+        # ----------------------------------------------------
+        col_obra_social = COLUMNA_OBRA_SOCIAL
+        fila_encabezado = max(1, FILA_INICIO - 1)
+        encontrada = False
+
+        # Si en los encabezados ya existe una columna de obra social
+        for c in range(1, 20):
+            val_h = str(ws.cell(fila_encabezado, c).value or "").strip().lower()
+            if any(k in val_h for k in ["obra social", "cobertura", "prepaga", "afiliacion", "o.s."]):
+                col_obra_social = c
+                encontrada = True
+                break
+
+        # Si no existe, y la columna 7 actual está ocupada (ej. 'Fecha ingreso'), agregar columna a la derecha
+        if not encontrada:
+            val_col7 = str(ws.cell(fila_encabezado, COLUMNA_OBRA_SOCIAL).value or "").strip().lower()
+            if val_col7 and not any(k in val_col7 for k in ["obra social", "cobertura", "prepaga"]):
+                max_col = max([c for c in range(1, 30) if ws.cell(fila_encabezado, c).value is not None] or [COLUMNA_OBRA_SOCIAL])
+                col_obra_social = max_col + 1
+                try:
+                    ws.cell(fila_encabezado, col_obra_social).value = "Obra Social (SSSalud)"
+                except Exception:
+                    pass
+
+        # ----------------------------------------------------
+        # 3. BUSCAR FILAS CON DNI VÁLIDO Y AGRUPAR
         # ----------------------------------------------------
         dni_a_filas = defaultdict(list)
         total_filas = 0
 
-        # Primero buscamos desde FILA_INICIO
         for fila in range(FILA_INICIO, ultima_fila + 1):
             dni_val = ws.cell(fila, COLUMNA_DNI).value
-            if dni_val is None:
+            dni_limpio = limpiar_dni(dni_val)
+            if not dni_limpio:
                 continue
-            dni_str = str(dni_val).strip()
-            if not dni_str or dni_str.lower() in ["none", "null", "nan"]:
-                continue
-            dni_a_filas[dni_str].append(fila)
+            dni_a_filas[dni_limpio].append(fila)
             total_filas += 1
 
-        # Si no se encontraron filas en FILA_INICIO pero el archivo tiene filas antes
+        # Fallback si las filas empezaban antes de FILA_INICIO
         if total_filas == 0 and ultima_fila >= 2:
             for fila in range(2, min(FILA_INICIO, ultima_fila + 1)):
                 dni_val = ws.cell(fila, COLUMNA_DNI).value
-                if dni_val is None:
+                dni_limpio = limpiar_dni(dni_val)
+                if not dni_limpio:
                     continue
-                dni_str = str(dni_val).strip()
-                if not dni_str or dni_str.lower() in ["none", "null", "nan"]:
-                    continue
-                dni_a_filas[dni_str].append(fila)
+                dni_a_filas[dni_limpio].append(fila)
                 total_filas += 1
 
         dnis_unicos = list(dni_a_filas.keys())
@@ -416,11 +470,12 @@ def procesar_archivo(
 
         print("")
         print("====================================================")
-        print("       PROCESAMIENTO SSSALUD ULTRARRÁPIDO")
+        print("       PROCESAMIENTO SSSALUD CONCURRENTE")
         print("====================================================")
-        print("Última fila:", ultima_fila)
-        print("Total de registros a consultar:", total)
-        print("Total de DNIs únicos:", len(dnis_unicos))
+        print("Última fila del Excel:", ultima_fila)
+        print("Registros válidos de pacientes:", total)
+        print("Total de DNIs únicos a consultar:", len(dnis_unicos))
+        print("Columna destino Obra Social:", col_obra_social)
         print("Hilos concurrentes (Workers):", MAX_WORKERS)
         print("====================================================")
 
@@ -434,20 +489,21 @@ def procesar_archivo(
             return
 
         # ----------------------------------------------------
-        # 3. CONEXIÓN SSSALUD
+        # 4. CONEXIÓN SSSALUD
         # ----------------------------------------------------
         estado["estado"] = "conectando_sssalud"
         sss = crear_conexion_sss()
         estado["estado"] = "consultando"
 
         # ----------------------------------------------------
-        # 4. PROCESAMIENTO MULTIHILO CONCURRENTE
+        # 5. CONSULTAS CONCURRENTES EN PARALELO
         # ----------------------------------------------------
         inicio = time.time()
         lock_estado = threading.Lock()
         resultados_dni = {}
 
         def procesar_un_dni(dni):
+            time.sleep(0.04)  # Espaciado suave para no saturar el socket
             res = consultar_dni(sss, dni)
             filas = dni_a_filas[dni]
             cant = len(filas)
@@ -480,7 +536,6 @@ def procesar_archivo(
             print(f"DNI {dni} -> {res} ({cant} filas)")
             return dni, res
 
-        # Ejecutar todas las consultas de DNIs únicos en paralelo
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futuros = [executor.submit(procesar_un_dni, d) for d in dnis_unicos]
             for f in as_completed(futuros):
@@ -490,22 +545,29 @@ def procesar_archivo(
                     print(f"Error en hilo de consulta: {ex_hilo}")
 
         # ----------------------------------------------------
-        # 5. ESCRIBIR RESULTADOS EN EXCEL
+        # 6. ESCRIBIR RESULTADOS EN EXCEL (CON PROTECCIÓN MERGEDCELL)
         # ----------------------------------------------------
         print("Escribiendo resultados en memoria...")
         for dni, filas in dni_a_filas.items():
             res_dni = resultados_dni.get(dni, "ERROR CONSULTA")
             for fila in filas:
-                ws.cell(fila, COLUMNA_OBRA_SOCIAL).value = res_dni
+                try:
+                    cell = ws.cell(fila, col_obra_social)
+                    # Protección estricta contra celdas combinadas de formato o pie de página
+                    if type(cell).__name__ == "MergedCell":
+                        continue
+                    cell.value = res_dni
+                except (AttributeError, Exception) as err_cell:
+                    print(f"No se pudo escribir en fila {fila}: {err_cell}")
 
         # ----------------------------------------------------
-        # 6. GUARDADO FINAL ÚNICO
+        # 7. GUARDADO FINAL ÚNICO
         # ----------------------------------------------------
         estado["estado"] = "guardando"
         wb.save(archivo_salida)
 
         # ----------------------------------------------------
-        # 7. FINALIZADO
+        # 8. FINALIZADO
         # ----------------------------------------------------
         estado["estado"] = "terminado"
         estado["procesadas"] = total
