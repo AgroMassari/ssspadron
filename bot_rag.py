@@ -28,8 +28,8 @@ CHROMA_DIR.mkdir(exist_ok=True)
 
 CHUNK_SIZE      = 1000
 CHUNK_OVERLAP   = 150
-MODEL_NAME      = "gpt-4o-mini"        # Para respuestas de texto (más económico)
-MODEL_VISION    = os.environ.get("OPENAI_MODEL_VISION", "gpt-4o")  # gpt-4o para visión médica precisa
+MODEL_NAME      = os.environ.get("OPENAI_MODEL", "gpt-4o")         # Modelo insignia GPT-4o para máxima potencia y precisión
+MODEL_VISION    = os.environ.get("OPENAI_MODEL_VISION", "gpt-4o")  # GPT-4o Vision insignia para análisis visual médico
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 EXTENSIONES_IMAGEN = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -438,7 +438,18 @@ def _analizar_con_vision(imagenes, contexto: str, mime_type: str = "image/jpeg")
             max_tokens=2500,
             timeout=85,
         )
-        return {"ok": True, "analisis": respuesta.choices[0].message.content}
+        choice = respuesta.choices[0]
+        contenido = choice.message.content
+        finish = choice.finish_reason
+        if not contenido:
+            motivo = finish or "desconocido"
+            logger.error("Respuesta vacía de Vision API. finish_reason=%s", motivo)
+            return {
+                "ok": False,
+                "error": f"La API devolvió una respuesta vacía (finish_reason={motivo}). "
+                         "Puede ser filtro de contenido o imagen demasiado grande. Reintentá con resolución menor."
+            }
+        return {"ok": True, "analisis": contenido}
     except Exception as e:
         err_str = str(e).lower()
         # Reintentar una vez si la API está sobrecargada
@@ -458,7 +469,14 @@ def _analizar_con_vision(imagenes, contexto: str, mime_type: str = "image/jpeg")
                     max_tokens=2500,
                     timeout=55,
                 )
-                return {"ok": True, "analisis": respuesta.choices[0].message.content}
+                choice = respuesta.choices[0]
+                contenido = choice.message.content
+                if not contenido:
+                    return {
+                        "ok": False,
+                        "error": f"La API devolvió respuesta vacía en el reintento (finish_reason={choice.finish_reason})."
+                    }
+                return {"ok": True, "analisis": contenido}
             except Exception as e2:
                 logger.error("Error en reintento Vision: %s", e2)
                 return {
@@ -534,8 +552,11 @@ def analizar_foja_quirurgica(ruta) -> dict:
                 llm      = _obtener_llm()
                 prompt   = PROMPT_FOJA_TEXTO.format(context=contexto, foja=texto_foja[:6000])
                 response = llm.invoke([HumanMessage(content=prompt)])
+                contenido = getattr(response, "content", None)
+                if not contenido:
+                    raise ValueError("Respuesta vacía del LLM para PDF con texto")
                 doc.close()
-                return {"ok": True, "analisis": response.content}
+                return {"ok": True, "analisis": contenido}
             except Exception as e:
                 logger.warning("Fallo en análisis de texto directo, pasando a renderizar con Vision: %s", e)
 
