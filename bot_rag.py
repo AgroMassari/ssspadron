@@ -65,7 +65,10 @@ def _cargar_docx(ruta: Path) -> list:
 
 def _cargar_excel(ruta: Path) -> list:
     import openpyxl
-    from langchain.schema import Document
+    try:
+        from langchain_core.documents import Document
+    except ImportError:
+        from langchain.schema import Document
     documentos = []
     # read_only=True es CLAVE para no saturar la memoria RAM
     wb = openpyxl.load_workbook(ruta, data_only=True, read_only=True)
@@ -125,7 +128,10 @@ def _obtener_vectorstore():
 
 
 def agregar_documento_a_base(ruta: Path) -> int:
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    try:
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+    except ImportError:
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
     documentos = cargar_documento(ruta)
     if not documentos:
         return 0
@@ -559,7 +565,10 @@ def analizar_foja_quirurgica(ruta) -> dict:
         tiene_texto_real  = len(texto_foja) > 300 and any(p in texto_foja.lower() for p in palabras_clinicas)
 
         if tiene_texto_real:
-            from langchain.schema import HumanMessage
+            try:
+                from langchain_core.messages import HumanMessage
+            except ImportError:
+                from langchain.schema import HumanMessage
             try:
                 llm      = _obtener_llm()
                 prompt   = PROMPT_FOJA_TEXTO.format(context=contexto, foja=texto_foja[:6000])
