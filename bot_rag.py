@@ -176,47 +176,59 @@ def _obtener_llm():
     return ChatOpenAI(model=MODEL_NAME, temperature=0.2, openai_api_key=api_key)
 
 
-def construir_cadena_qa():
-    from langchain.chains import RetrievalQA
-    from langchain.prompts import PromptTemplate
-
-    retriever = _obtener_vectorstore().as_retriever(
-        search_type="similarity", search_kwargs={"k": 5}
-    )
-
-    PROMPT_SISTEMA = (
-        "Sos un asistente especializado en salud, facturación médica y nomencladores. "
-        "Respondé SIEMPRE en español, de forma clara y precisa. "
-        "Si la información no está en los documentos disponibles, decilo claramente. "
-        "No inventes datos ni códigos que no estén en el contexto."
-    )
-    template = (
-        "{ps}\n\nContexto de los documentos:\n{{context}}\n\nPregunta: {{question}}\nRespuesta:"
-    ).format(ps=PROMPT_SISTEMA)
-
-    prompt = PromptTemplate(input_variables=["context", "question"], template=template)
-    return RetrievalQA.from_chain_type(
-        llm=_obtener_llm(),
-        chain_type="stuff",
-        retriever=retriever,
-        chain_type_kwargs={"prompt": prompt},
-        return_source_documents=False,
-    )
-
-
-_cadena_qa = None
+PROMPT_SISTEMA_RAG = (
+    "Sos un asistente especializado en salud, facturación médica y nomencladores argentinos. "
+    "Respondé SIEMPRE en español, de forma clara y precisa. "
+    "Usá únicamente la información del contexto provisto. "
+    "Si la información no está en los documentos disponibles, decilo claramente. "
+    "No inventes datos ni códigos que no estén en el contexto."
+)
 
 
 def responder(pregunta: str) -> str:
-    global _cadena_qa
-    if _cadena_qa is None:
-        _cadena_qa = construir_cadena_qa()
+    """Responde una pregunta usando RAG: recupera fragmentos relevantes del
+    vectorstore y los envía junto con la pregunta directamente a la API de OpenAI.
+    No depende de langchain.chains para mayor compatibilidad."""
     try:
-        resultado = _cadena_qa.invoke({"query": pregunta})
-        return resultado.get("result", "No pude generar una respuesta.")
+        from openai import OpenAI
+
+        # 1. Recuperar fragmentos relevantes del vectorstore
+        retriever = _obtener_vectorstore().as_retriever(
+            search_type="similarity", search_kwargs={"k": 5}
+        )
+        fragmentos = retriever.invoke(pregunta)
+        contexto = "\n\n".join(f.page_content for f in fragmentos)
+
+        if not contexto.strip():
+            contexto = "No se encontraron documentos indexados en el sistema."
+
+        # 2. Construir el prompt
+        prompt_usuario = (
+            f"Contexto de los documentos:\n{contexto}\n\n"
+            f"Pregunta: {pregunta}\nRespuesta:"
+        )
+
+        # 3. Llamar directamente a la API de OpenAI
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return "Error: falta la variable de entorno OPENAI_API_KEY."
+
+        client = OpenAI(api_key=api_key)
+        respuesta = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": PROMPT_SISTEMA_RAG},
+                {"role": "user",   "content": prompt_usuario},
+            ],
+            temperature=0.2,
+            max_tokens=1500,
+            timeout=60,
+        )
+        return respuesta.choices[0].message.content or "No pude generar una respuesta."
+
     except Exception as e:
         logger.error("Error RAG: %s", e)
-        return "Ocurrió un error al procesar tu consulta. Por favor intentá de nuevo."
+        return f"Ocurrió un error al procesar tu consulta: {e}"
 
 
 # ============================================================
