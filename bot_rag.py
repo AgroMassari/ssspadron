@@ -238,24 +238,55 @@ def _buscar_contexto_directo(pregunta: str, max_chars: int = 80000) -> str:
 
 
 def responder(pregunta: str) -> str:
-    """Responde una pregunta leyendo los documentos directamente del disco
-    y enviando el contexto a la API de OpenAI. No requiere ChromaDB."""
+    """Responde usando ChromaDB (búsqueda semántica) + nomenclador TXT completo.
+    Si ChromaDB no está disponible, lee los archivos directamente del disco."""
     try:
         from openai import OpenAI
 
-        # 1. Obtener contexto directo de los documentos
-        contexto = _buscar_contexto_directo(pregunta)
+        contexto_partes = []
+
+        # 1. Siempre incluir el nomenclador TXT completo
+        for archivo in sorted(DOCS_DIR.iterdir()):
+            if archivo.suffix.lower() == ".txt" and archivo.is_file():
+                try:
+                    texto = archivo.read_text(encoding="utf-8", errors="ignore")
+                    contexto_partes.append(f"=== {archivo.name} (NOMENCLADOR COMPLETO) ===\n{texto}")
+                    logger.info("TXT cargado: %s", archivo.name)
+                except Exception as e:
+                    logger.warning("No se pudo leer TXT %s: %s", archivo.name, e)
+
+        # 2. Buscar en ChromaDB (búsqueda semántica — funciona con PDFs indexados)
+        try:
+            retriever = _obtener_vectorstore().as_retriever(
+                search_type="similarity", search_kwargs={"k": 10}
+            )
+            fragmentos = retriever.invoke(pregunta)
+            if fragmentos:
+                rag_texto = "\n\n".join(
+                    f"[{f.metadata.get('source', 'doc')}]\n{f.page_content}"
+                    for f in fragmentos
+                )
+                contexto_partes.append(f"=== FRAGMENTOS RELEVANTES DE INSTRUCTIVOS ===\n{rag_texto}")
+                logger.info("ChromaDB: %d fragmentos recuperados", len(fragmentos))
+        except Exception as e:
+            logger.warning("ChromaDB no disponible, usando lectura directa: %s", e)
+            # Fallback: leer PDFs directamente (funciona si tienen texto extraíble)
+            contexto_directo = _buscar_contexto_directo(pregunta)
+            if contexto_directo:
+                contexto_partes.append(contexto_directo)
+
+        contexto = "\n\n".join(contexto_partes)
 
         if not contexto.strip():
             contexto = "No hay documentos cargados en el sistema todavía."
 
-        # 2. Construir el prompt
+        # 3. Construir el prompt
         prompt_usuario = (
             f"Contexto de los documentos:\n{contexto}\n\n"
             f"Pregunta: {pregunta}\nRespuesta:"
         )
 
-        # 3. Llamar a la API de OpenAI
+        # 4. Llamar a la API de OpenAI
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             return "Error: falta la variable de entorno OPENAI_API_KEY."
