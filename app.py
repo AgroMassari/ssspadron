@@ -1179,6 +1179,25 @@ def estado_foja(job_id):
 
 
 # ============================================================
+# CHAT CON RAG (CONSULTA A INSTRUCTIVOS Y DOCUMENTOS)
+# ============================================================
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    datos = request.get_json(silent=True) or {}
+    pregunta = datos.get("pregunta", "").strip()
+
+    if not pregunta:
+        return jsonify({"ok": False, "error": "La pregunta no puede estar vacía."}), 400
+
+    try:
+        respuesta_texto = responder(pregunta)
+        return jsonify({"ok": True, "respuesta": respuesta_texto})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ============================================================
 # EJECUTAR
 # ============================================================
 

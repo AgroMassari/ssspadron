@@ -322,6 +322,182 @@
             margin-top: 16px;
         }
 
+        /* ── Chat con IA ── */
+        .icon-blue { background: rgba(59,130,246,0.15); }
+
+        #chat-historial {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+            height: 380px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+
+        #chat-historial::-webkit-scrollbar { width: 5px; }
+        #chat-historial::-webkit-scrollbar-track { background: transparent; }
+        #chat-historial::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        .burbuja {
+            display: flex;
+            flex-direction: column;
+            max-width: 88%;
+            animation: fadeIn 0.25s ease;
+        }
+
+        .burbuja.usuario { align-self: flex-end; align-items: flex-end; }
+        .burbuja.bot     { align-self: flex-start; align-items: flex-start; }
+
+        .burbuja-texto {
+            padding: 11px 15px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            word-break: break-word;
+        }
+
+        .burbuja.usuario .burbuja-texto {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .burbuja.bot .burbuja-texto {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-bottom-left-radius: 4px;
+        }
+
+        .burbuja-meta {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-top: 4px;
+            padding: 0 4px;
+        }
+
+        /* Markdown dentro de burbuja bot */
+        .burbuja.bot .burbuja-texto table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            display: block;
+            white-space: nowrap;
+        }
+        .burbuja.bot .burbuja-texto th {
+            background: rgba(255,255,255,0.08);
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+        }
+        .burbuja.bot .burbuja-texto td {
+            padding: 7px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .burbuja.bot .burbuja-texto h2, .burbuja.bot .burbuja-texto h3 {
+            color: #60a5fa;
+            margin: 12px 0 6px;
+        }
+        .burbuja.bot .burbuja-texto p { margin-bottom: 8px; }
+        .burbuja.bot .burbuja-texto ul, .burbuja.bot .burbuja-texto ol {
+            padding-left: 18px;
+            margin-bottom: 8px;
+        }
+        .burbuja.bot .burbuja-texto code {
+            background: rgba(255,255,255,0.08);
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+
+        .chat-input-fila {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        #chat-input {
+            flex: 1;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.92rem;
+            padding: 12px 14px;
+            resize: none;
+            min-height: 46px;
+            max-height: 120px;
+            outline: none;
+            transition: border-color 0.2s;
+            overflow-y: auto;
+        }
+
+        #chat-input:focus { border-color: #3b82f6; }
+
+        #btn-chat-enviar {
+            width: auto;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.15s;
+            flex-shrink: 0;
+        }
+
+        #btn-chat-enviar:hover   { opacity: 0.88; }
+        #btn-chat-enviar:active  { transform: scale(0.96); }
+        #btn-chat-enviar:disabled{ opacity: 0.5; cursor: not-allowed; }
+
+        .burbuja-escribiendo {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 12px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            border-bottom-left-radius: 4px;
+            width: fit-content;
+        }
+
+        .punto-typing {
+            width: 7px; height: 7px;
+            background: var(--muted);
+            border-radius: 50%;
+            animation: typing 1.2s ease-in-out infinite;
+        }
+        .punto-typing:nth-child(2) { animation-delay: 0.2s; }
+        .punto-typing:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+            40%           { transform: translateY(-5px); opacity: 1; }
+        }
+
+        .chat-vacio {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            font-size: 0.88rem;
+            gap: 10px;
+            opacity: 0.7;
+        }
+
+        .chat-vacio-icono { font-size: 2.5rem; }
+
     </style>
 </head>
 
@@ -463,6 +639,40 @@
                         Cargando documentos...
                     </div>
                 </div>
+            </div>
+
+        </div>
+
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- CARD 4: Consultá al asistente de IA               -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div class="card">
+
+            <div class="card-header">
+                <div class="card-icon icon-blue">💬</div>
+                <div>
+                    <div class="card-title">Consultá al Asistente de IA</div>
+                    <div class="card-desc">Hacé preguntas sobre los instructivos, nomencladores y documentos cargados en el sistema</div>
+                </div>
+            </div>
+
+            <!-- Historial de mensajes -->
+            <div id="chat-historial">
+                <div class="chat-vacio" id="chat-vacio">
+                    <div class="chat-vacio-icono">🤖</div>
+                    <div>Hacé tu primera pregunta sobre los instructivos o nomencladores</div>
+                    <div style="font-size:0.8rem; opacity:0.6;">Ej: ¿Qué código corresponde a una apendicectomía?</div>
+                </div>
+            </div>
+
+            <!-- Input y botón -->
+            <div class="chat-input-fila">
+                <textarea
+                    id="chat-input"
+                    placeholder="Escribí tu pregunta aquí... (Enter para enviar, Shift+Enter para nueva línea)"
+                    rows="1"
+                ></textarea>
+                <button id="btn-chat-enviar" title="Enviar">➤</button>
             </div>
 
         </div>
@@ -819,6 +1029,118 @@
 
         // Cargar lista solo si ya está autenticado (tiene clave en sesión)
         if (claveBot) cargarListaDocs();
+
+        // ══════════════════════════════════════════════════════
+        // CARD 4 – Chat con IA (RAG)
+        // ══════════════════════════════════════════════════════
+
+        const chatHistorial  = document.getElementById('chat-historial');
+        const chatInput      = document.getElementById('chat-input');
+        const btnChatEnviar  = document.getElementById('btn-chat-enviar');
+        const chatVacio      = document.getElementById('chat-vacio');
+
+        function horaActual() {
+            return new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function agregarBurbuja(texto, tipo, esMarkdown = false) {
+            // Ocultar estado vacío
+            if (chatVacio) chatVacio.style.display = 'none';
+
+            const burbuja = document.createElement('div');
+            burbuja.className = `burbuja ${tipo}`;
+
+            const contenido = document.createElement('div');
+            contenido.className = 'burbuja-texto';
+
+            if (esMarkdown && typeof marked !== 'undefined') {
+                contenido.innerHTML = marked.parse(texto);
+            } else {
+                contenido.textContent = texto;
+            }
+
+            const meta = document.createElement('div');
+            meta.className = 'burbuja-meta';
+            meta.textContent = horaActual();
+
+            burbuja.appendChild(contenido);
+            burbuja.appendChild(meta);
+            chatHistorial.appendChild(burbuja);
+            chatHistorial.scrollTop = chatHistorial.scrollHeight;
+            return burbuja;
+        }
+
+        function mostrarTyping() {
+            if (chatVacio) chatVacio.style.display = 'none';
+            const burbuja = document.createElement('div');
+            burbuja.className = 'burbuja bot';
+            burbuja.id = 'burbuja-typing';
+            burbuja.innerHTML = `
+                <div class="burbuja-escribiendo">
+                    <div class="punto-typing"></div>
+                    <div class="punto-typing"></div>
+                    <div class="punto-typing"></div>
+                </div>`;
+            chatHistorial.appendChild(burbuja);
+            chatHistorial.scrollTop = chatHistorial.scrollHeight;
+        }
+
+        function quitarTyping() {
+            const t = document.getElementById('burbuja-typing');
+            if (t) t.remove();
+        }
+
+        async function enviarPregunta() {
+            const pregunta = chatInput.value.trim();
+            if (!pregunta) return;
+
+            // Mostrar mensaje del usuario
+            agregarBurbuja(pregunta, 'usuario');
+            chatInput.value = '';
+            chatInput.style.height = 'auto';
+
+            // Bloquear mientras espera
+            btnChatEnviar.disabled = true;
+            mostrarTyping();
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pregunta })
+                });
+                const data = await res.json();
+                quitarTyping();
+
+                if (data.ok) {
+                    agregarBurbuja(data.respuesta, 'bot', true);
+                } else {
+                    agregarBurbuja('❌ ' + (data.error || 'Ocurrió un error al consultar el asistente.'), 'bot');
+                }
+            } catch (e) {
+                quitarTyping();
+                agregarBurbuja('❌ No se pudo conectar con el servidor. Verificá que la app esté corriendo.', 'bot');
+            } finally {
+                btnChatEnviar.disabled = false;
+                chatInput.focus();
+            }
+        }
+
+        // Enviar con Enter (Shift+Enter = nueva línea)
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                enviarPregunta();
+            }
+        });
+
+        // Auto-resize del textarea
+        chatInput.addEventListener('input', () => {
+            chatInput.style.height = 'auto';
+            chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+        });
+
+        btnChatEnviar.addEventListener('click', enviarPregunta);
 
     </script>
 
