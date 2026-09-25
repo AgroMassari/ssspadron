@@ -1109,8 +1109,17 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ pregunta })
                 });
-                const data = await res.json();
                 quitarTyping();
+
+                // Si el servidor no responde con JSON válido, mostrar el error real
+                let data;
+                const texto = await res.text();
+                try {
+                    data = JSON.parse(texto);
+                } catch {
+                    agregarBurbuja(`❌ Error del servidor (${res.status}): ${texto.substring(0, 300)}`, 'bot');
+                    return;
+                }
 
                 if (data.ok) {
                     agregarBurbuja(data.respuesta, 'bot', true);
@@ -1119,7 +1128,7 @@
                 }
             } catch (e) {
                 quitarTyping();
-                agregarBurbuja('❌ No se pudo conectar con el servidor. Verificá que la app esté corriendo.', 'bot');
+                agregarBurbuja('❌ Error de red: ' + e.message, 'bot');
             } finally {
                 btnChatEnviar.disabled = false;
                 chatInput.focus();

@@ -191,63 +191,50 @@ PROMPT_SISTEMA_RAG = (
 )
 
 
-def _buscar_contexto_directo(pregunta: str, max_chars: int = 12000) -> str:
-    """Lee los documentos directamente del disco sin necesidad de ChromaDB.
-    - TXT: incluye completo
-    - PDF: extrae texto con PyMuPDF y filtra páginas relevantes por palabras clave
+def _buscar_contexto_directo(pregunta: str, max_chars: int = 80000) -> str:
+    """Lee TODOS los documentos del disco sin filtros ni límites arbitrarios.
+    - TXT: texto completo
+    - PDF: todas las páginas con PyMuPDF
+    GPT-4o soporta hasta 128k tokens, así que mandamos todo el contenido disponible.
     """
     if not DOCS_DIR.exists():
         return ""
 
-    palabras = [w.lower() for w in pregunta.split() if len(w) > 3]
     partes = []
-    chars_usados = 0
 
-    # 1. Leer TXTs completos (nomencladores tabulados)
+    # 1. Leer TXTs completos (nomencladores)
     for archivo in sorted(DOCS_DIR.iterdir()):
         if archivo.suffix.lower() == ".txt" and archivo.is_file():
             try:
                 texto = archivo.read_text(encoding="utf-8", errors="ignore")
-                fragmento = f"=== {archivo.name} ===\n{texto[:6000]}\n"
-                partes.append(fragmento)
-                chars_usados += len(fragmento)
-                if chars_usados >= max_chars:
-                    break
+                partes.append(f"=== {archivo.name} ===\n{texto}")
+                logger.info("TXT cargado: %s (%d chars)", archivo.name, len(texto))
             except Exception as e:
                 logger.warning("No se pudo leer %s: %s", archivo.name, e)
 
-    # 2. Leer PDFs con PyMuPDF y filtrar páginas relevantes
-    if chars_usados < max_chars:
-        try:
-            import fitz
-            for archivo in sorted(DOCS_DIR.iterdir()):
-                if archivo.suffix.lower() == ".pdf" and archivo.is_file():
-                    try:
-                        doc = fitz.open(str(archivo))
-                        paginas_relevantes = []
-                        for i, pagina in enumerate(doc):
-                            texto_pagina = pagina.get_text()
-                            if not texto_pagina.strip():
-                                continue
-                            texto_lower = texto_pagina.lower()
-                            # Incluir página si contiene alguna palabra clave
-                            if any(p in texto_lower for p in palabras) or len(paginas_relevantes) < 2:
-                                paginas_relevantes.append(texto_pagina)
-                            if chars_usados + sum(len(p) for p in paginas_relevantes) >= max_chars:
-                                break
-                        doc.close()
-                        if paginas_relevantes:
-                            bloque = f"=== {archivo.name} ===\n" + "\n".join(paginas_relevantes[:8])
-                            partes.append(bloque)
-                            chars_usados += len(bloque)
-                    except Exception as e:
-                        logger.warning("No se pudo leer PDF %s: %s", archivo.name, e)
-                if chars_usados >= max_chars:
-                    break
-        except ImportError:
-            logger.warning("PyMuPDF no disponible, omitiendo PDFs")
+    # 2. Leer TODOS los PDFs completos con PyMuPDF
+    try:
+        import fitz
+        for archivo in sorted(DOCS_DIR.iterdir()):
+            if archivo.suffix.lower() == ".pdf" and archivo.is_file():
+                try:
+                    doc = fitz.open(str(archivo))
+                    texto_pdf = "\n".join(
+                        pagina.get_text() for pagina in doc
+                        if pagina.get_text().strip()
+                    )
+                    doc.close()
+                    if texto_pdf.strip():
+                        partes.append(f"=== {archivo.name} ===\n{texto_pdf}")
+                        logger.info("PDF cargado: %s (%d chars)", archivo.name, len(texto_pdf))
+                except Exception as e:
+                    logger.warning("No se pudo leer PDF %s: %s", archivo.name, e)
+    except ImportError:
+        logger.warning("PyMuPDF no disponible, omitiendo PDFs")
 
-    return "\n\n".join(partes)[:max_chars]
+    contexto = "\n\n".join(partes)
+    logger.info("Contexto total: %d chars", len(contexto))
+    return contexto[:max_chars]
 
 
 def responder(pregunta: str) -> str:
