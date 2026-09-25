@@ -191,22 +191,76 @@ PROMPT_SISTEMA_RAG = (
 )
 
 
+def _buscar_contexto_directo(pregunta: str, max_chars: int = 12000) -> str:
+    """Lee los documentos directamente del disco sin necesidad de ChromaDB.
+    - TXT: incluye completo
+    - PDF: extrae texto con PyMuPDF y filtra páginas relevantes por palabras clave
+    """
+    if not DOCS_DIR.exists():
+        return ""
+
+    palabras = [w.lower() for w in pregunta.split() if len(w) > 3]
+    partes = []
+    chars_usados = 0
+
+    # 1. Leer TXTs completos (nomencladores tabulados)
+    for archivo in sorted(DOCS_DIR.iterdir()):
+        if archivo.suffix.lower() == ".txt" and archivo.is_file():
+            try:
+                texto = archivo.read_text(encoding="utf-8", errors="ignore")
+                fragmento = f"=== {archivo.name} ===\n{texto[:6000]}\n"
+                partes.append(fragmento)
+                chars_usados += len(fragmento)
+                if chars_usados >= max_chars:
+                    break
+            except Exception as e:
+                logger.warning("No se pudo leer %s: %s", archivo.name, e)
+
+    # 2. Leer PDFs con PyMuPDF y filtrar páginas relevantes
+    if chars_usados < max_chars:
+        try:
+            import fitz
+            for archivo in sorted(DOCS_DIR.iterdir()):
+                if archivo.suffix.lower() == ".pdf" and archivo.is_file():
+                    try:
+                        doc = fitz.open(str(archivo))
+                        paginas_relevantes = []
+                        for i, pagina in enumerate(doc):
+                            texto_pagina = pagina.get_text()
+                            if not texto_pagina.strip():
+                                continue
+                            texto_lower = texto_pagina.lower()
+                            # Incluir página si contiene alguna palabra clave
+                            if any(p in texto_lower for p in palabras) or len(paginas_relevantes) < 2:
+                                paginas_relevantes.append(texto_pagina)
+                            if chars_usados + sum(len(p) for p in paginas_relevantes) >= max_chars:
+                                break
+                        doc.close()
+                        if paginas_relevantes:
+                            bloque = f"=== {archivo.name} ===\n" + "\n".join(paginas_relevantes[:8])
+                            partes.append(bloque)
+                            chars_usados += len(bloque)
+                    except Exception as e:
+                        logger.warning("No se pudo leer PDF %s: %s", archivo.name, e)
+                if chars_usados >= max_chars:
+                    break
+        except ImportError:
+            logger.warning("PyMuPDF no disponible, omitiendo PDFs")
+
+    return "\n\n".join(partes)[:max_chars]
+
+
 def responder(pregunta: str) -> str:
-    """Responde una pregunta usando RAG: recupera fragmentos relevantes del
-    vectorstore y los envía junto con la pregunta directamente a la API de OpenAI.
-    No depende de langchain.chains para mayor compatibilidad."""
+    """Responde una pregunta leyendo los documentos directamente del disco
+    y enviando el contexto a la API de OpenAI. No requiere ChromaDB."""
     try:
         from openai import OpenAI
 
-        # 1. Recuperar fragmentos relevantes del vectorstore
-        retriever = _obtener_vectorstore().as_retriever(
-            search_type="similarity", search_kwargs={"k": 5}
-        )
-        fragmentos = retriever.invoke(pregunta)
-        contexto = "\n\n".join(f.page_content for f in fragmentos)
+        # 1. Obtener contexto directo de los documentos
+        contexto = _buscar_contexto_directo(pregunta)
 
         if not contexto.strip():
-            contexto = "No se encontraron documentos indexados en el sistema."
+            contexto = "No hay documentos cargados en el sistema todavía."
 
         # 2. Construir el prompt
         prompt_usuario = (
@@ -214,7 +268,7 @@ def responder(pregunta: str) -> str:
             f"Pregunta: {pregunta}\nRespuesta:"
         )
 
-        # 3. Llamar directamente a la API de OpenAI
+        # 3. Llamar a la API de OpenAI
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             return "Error: falta la variable de entorno OPENAI_API_KEY."
@@ -228,12 +282,12 @@ def responder(pregunta: str) -> str:
             ],
             temperature=0.2,
             max_tokens=1500,
-            timeout=60,
+            timeout=55,
         )
         return respuesta.choices[0].message.content or "No pude generar una respuesta."
 
     except Exception as e:
-        logger.error("Error RAG: %s", e)
+        logger.error("Error en responder(): %s", e)
         return f"Ocurrió un error al procesar tu consulta: {e}"
 
 
