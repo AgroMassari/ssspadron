@@ -238,55 +238,36 @@ def _buscar_contexto_directo(pregunta: str, max_chars: int = 80000) -> str:
 
 
 def responder(pregunta: str) -> str:
-    """Responde usando ChromaDB (búsqueda semántica) + nomenclador TXT completo.
-    Si ChromaDB no está disponible, lee los archivos directamente del disco."""
+    """Responde usando ChromaDB (que ya tiene indexados TODOS los documentos
+    incluyendo nomencladores y PDFs). Fallback a lectura directa si falla."""
     try:
         from openai import OpenAI
 
-        contexto_partes = []
+        contexto = ""
 
-        # 1. Siempre incluir el nomenclador TXT completo
-        for archivo in sorted(DOCS_DIR.iterdir()):
-            if archivo.suffix.lower() == ".txt" and archivo.is_file():
-                try:
-                    texto = archivo.read_text(encoding="utf-8", errors="ignore")
-                    contexto_partes.append(f"=== {archivo.name} (NOMENCLADOR COMPLETO) ===\n{texto}")
-                    logger.info("TXT cargado: %s", archivo.name)
-                except Exception as e:
-                    logger.warning("No se pudo leer TXT %s: %s", archivo.name, e)
-
-        # 2. Buscar en ChromaDB (búsqueda semántica — funciona con PDFs indexados)
+        # 1. Intentar ChromaDB (búsqueda semántica sobre TODO lo indexado)
         try:
             retriever = _obtener_vectorstore().as_retriever(
-                search_type="similarity", search_kwargs={"k": 10}
+                search_type="similarity", search_kwargs={"k": 8}
             )
             fragmentos = retriever.invoke(pregunta)
             if fragmentos:
-                rag_texto = "\n\n".join(
-                    f"[{f.metadata.get('source', 'doc')}]\n{f.page_content}"
+                contexto = "\n\n".join(
+                    f"[Fuente: {Path(f.metadata.get('source', 'doc')).name}]\n{f.page_content}"
                     for f in fragmentos
                 )
-                contexto_partes.append(f"=== FRAGMENTOS RELEVANTES DE INSTRUCTIVOS ===\n{rag_texto}")
                 logger.info("ChromaDB: %d fragmentos recuperados", len(fragmentos))
         except Exception as e:
-            logger.warning("ChromaDB no disponible, usando lectura directa: %s", e)
-            # Fallback: leer PDFs directamente (funciona si tienen texto extraíble)
-            contexto_directo = _buscar_contexto_directo(pregunta)
-            if contexto_directo:
-                contexto_partes.append(contexto_directo)
+            logger.warning("ChromaDB falló: %s — usando lectura directa", e)
 
-        contexto = "\n\n".join(contexto_partes)
+        # 2. Fallback: leer documentos directo del disco
+        if not contexto.strip():
+            contexto = _buscar_contexto_directo(pregunta, max_chars=15000)
 
         if not contexto.strip():
-            contexto = "No hay documentos cargados en el sistema todavía."
+            contexto = "No hay documentos cargados en el sistema."
 
-        # 3. Construir el prompt
-        prompt_usuario = (
-            f"Contexto de los documentos:\n{contexto}\n\n"
-            f"Pregunta: {pregunta}\nRespuesta:"
-        )
-
-        # 4. Llamar a la API de OpenAI
+        # 3. Llamar a OpenAI
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             return "Error: falta la variable de entorno OPENAI_API_KEY."
@@ -296,17 +277,17 @@ def responder(pregunta: str) -> str:
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": PROMPT_SISTEMA_RAG},
-                {"role": "user",   "content": prompt_usuario},
+                {"role": "user", "content": f"Contexto de los documentos:\n{contexto}\n\nPregunta: {pregunta}\nRespuesta:"},
             ],
             temperature=0.2,
             max_tokens=1500,
-            timeout=55,
+            timeout=50,
         )
         return respuesta.choices[0].message.content or "No pude generar una respuesta."
 
     except Exception as e:
         logger.error("Error en responder(): %s", e)
-        return f"Ocurrió un error al procesar tu consulta: {e}"
+        return f"Ocurrió un error: {e}"
 
 
 # ============================================================
