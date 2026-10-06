@@ -124,6 +124,15 @@ try:
         try:
 
             resultado = sss.query(dni)
+            if not resultado.get("ok"):
+                # Si falló, intentar renovar la sesión y reintentar
+                print("Consulta no exitosa, reintentando con renovación de sesión...")
+                time.sleep(1.2)
+                try:
+                    sss.login()
+                    resultado = sss.query(dni)
+                except Exception as ex_reintento:
+                    print(f"Error al renovar sesión: {ex_reintento}")
 
             ok = resultado.get("ok")
             datos = resultado.get("resultados", {})

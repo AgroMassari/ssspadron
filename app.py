@@ -3,6 +3,7 @@ import re
 import time
 import uuid
 import threading
+import html
 from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -95,8 +96,10 @@ COLUMNA_DNI = 1
 COLUMNA_OBRA_SOCIAL = 7
 
 # Concurrencia con Pool de Sesiones Independientes y Base de Datos Local
-NUM_SESSIONS = int(os.environ.get("SSS_NUM_SESSIONS", 6))
-MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 18))
+NUM_SESSIONS = int(os.environ.get("SSS_NUM_SESSIONS", 4))
+MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 6))
+ESPERA_ENTRE_CONSULTAS = float(os.environ.get("SSS_DELAY", 0.25))
+MAX_CONSULTAS_POR_SESION = int(os.environ.get("SSS_MAX_REQS_PER_SESSION", 75))
 CACHE_DNI = {}
 CACHE_LOCK = threading.Lock()
 
@@ -220,29 +223,44 @@ def parsear_respuesta_sss(html_text):
     if not html_text:
         return "ERROR CONSULTA"
 
+    texto = html.unescape(html_text)
+    texto_upper = texto.upper()
+
     # 1. NO AFILIADO
-    if (
-        "No se reportan datos para el NUMERO DE DOCUMENTO" in html_text
-        or "NO AFILIADO" in html_text.upper()
-    ) and "DATOS DE AFILIACION VIGENTE" not in html_text:
+    indicadores_no_afiliado = [
+        "NO SE REPORTAN DATOS PARA EL NUMERO DE DOCUMENTO",
+        "NO SE REPORTAN DATOS",
+        "NO AFILIADO",
+        "NO REGISTRA COBERTURA",
+        "NO POSEE COBERTURA",
+        "SIN COBERTURA",
+    ]
+    es_no_afiliado = any(k in texto_upper for k in indicadores_no_afiliado)
+    tiene_afiliacion = bool(
+        re.search(r'DATOS\s+DE\s+AFILIACI(?:Ó|O)N\s+VIGENTE', texto, re.I)
+        or "AFILIACION VIGENTE" in texto_upper
+        or "AFILIACIÓN VIGENTE" in texto_upper
+    )
+
+    if es_no_afiliado and not tiene_afiliacion:
         return "NO AFILIADO"
 
     # 2. AFILIADO VIGENTE
-    if "DATOS DE AFILIACION VIGENTE" in html_text:
+    if tiene_afiliacion:
         codigo = None
         denominacion = None
 
         m_cod = re.search(
-            r'C(?:ó|&oacute;|o)digo\s+de\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
-            html_text,
+            r'C(?:ó|o)digo\s+de\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
+            texto,
             re.I | re.DOTALL
         )
         if m_cod:
             codigo = m_cod.group(1).strip()
 
         m_den = re.search(
-            r'Denominaci(?:ó|&oacute;|o)n\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
-            html_text,
+            r'Denominaci(?:ó|o)n\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
+            texto,
             re.I | re.DOTALL
         )
         if m_den:
@@ -252,16 +270,15 @@ def parsear_respuesta_sss(html_text):
         if not (codigo and denominacion):
             try:
                 from bs4 import BeautifulSoup
-                soup = BeautifulSoup(html_text, 'html.parser')
+                soup = BeautifulSoup(texto, 'html.parser')
                 for tr in soup.find_all('tr'):
                     tds = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
                     if len(tds) >= 2:
-                        k, v = tds[0], tds[1]
-                        k_lower = k.lower()
-                        if "código de obra social" in k_lower or "codigo de obra social" in k_lower:
+                        k, v = tds[0].lower(), tds[1].strip()
+                        if "código de obra social" in k or "codigo de obra social" in k:
                             if not codigo and v:
                                 codigo = v
-                        elif "denominación obra social" in k_lower or "denominacion obra social" in k_lower:
+                        elif "denominación obra social" in k or "denominacion obra social" in k:
                             if not denominacion and v:
                                 denominacion = v
             except Exception:
@@ -275,8 +292,7 @@ def parsear_respuesta_sss(html_text):
             return str(codigo)
         return "AFILIADO - SIN OBRA SOCIAL IDENTIFICADA"
 
-    # Verificación secundaria
-    if "No se reportan datos para el NUMERO DE DOCUMENTO" in html_text:
+    if es_no_afiliado:
         return "NO AFILIADO"
 
     return "ERROR CONSULTA"
@@ -307,44 +323,80 @@ def parsear_datos_fallback(datos):
 
 
 class SessionWorker:
-    """Instancia de sesión HTTP independiente con su propia cookie PHPSESSID"""
+    """Instancia de sesión HTTP independiente con su propia cookie PHPSESSID y auto-renovación"""
     LOGIN_URL = 'https://seguro.sssalud.gob.ar/login.php?b_publica=Acceso+Restringido+para+Hospitales&opc=bus650&user=HPGD'
 
     def __init__(self, user, password, idx):
         self.user = user
         self.password = password
         self.idx = idx
+        self.session = None
+        self.logged_in = False
+        self.lock = threading.Lock()
+        self.ultimo_request = 0.0
+        self.total_consultas = 0
+        self._init_session()
+
+    def _init_session(self):
+        if self.session is not None:
+            try:
+                self.session.close()
+            except Exception:
+                pass
         self.session = requests.Session()
         adapter = HTTPAdapter(
-            pool_connections=6,
-            pool_maxsize=6,
-            max_retries=Retry(total=2, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
+            pool_connections=4,
+            pool_maxsize=4,
+            max_retries=Retry(total=3, backoff_factor=0.4, status_forcelist=[500, 502, 503, 504])
         )
         self.session.mount('https://', adapter)
         self.session.mount('http://', adapter)
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'es-ES,es;q=0.9',
+            'Connection': 'keep-alive',
         })
-        self.logged_in = False
-        self.lock = threading.Lock()
 
     def login(self, force=False):
         with self.lock:
             if self.logged_in and not force:
                 return True
-            try:
-                params = {
-                    '_user_name_': self.user,
-                    '_pass_word_': self.password,
-                    'submitbtn': 'Ingresar'
-                }
-                res = self.session.post(self.LOGIN_URL, data=params, verify=False, timeout=12)
-                if 'usuario_logueado' in res.text or 'nro_doc' in res.text or 'cat=consultas' in res.text:
-                    self.logged_in = True
-                    return True
-            except Exception as e:
-                print(f"Error en login sesión {self.idx}: {e}")
+            for intento in range(3):
+                try:
+                    # Limpiar cookies y crear sesión nueva para evitar arrastrar PHPSESSID expirada
+                    self._init_session()
+                    try:
+                        self.session.get(self.LOGIN_URL, verify=False, timeout=12)
+                    except Exception:
+                        pass
+
+                    params = {
+                        '_user_name_': self.user,
+                        '_pass_word_': self.password,
+                        'submitbtn': 'Ingresar'
+                    }
+                    res = self.session.post(self.LOGIN_URL, data=params, verify=False, timeout=15)
+                    text = res.text
+                    url_final = res.url.lower()
+
+                    if (
+                        'usuario_logueado' in text
+                        or 'nro_doc' in text
+                        or 'cat=consultas' in text
+                        or 'indexss.php' in url_final
+                        or 'pagina_consulta' in text
+                    ):
+                        self.logged_in = True
+                        self.total_consultas = 0
+                        return True
+                    else:
+                        print(f"Sesión {self.idx}: intento de login {intento+1} no reconocido por SSSalud (status {res.status_code})")
+                except Exception as e:
+                    print(f"Error en login sesión {self.idx} (intento {intento+1}): {e}")
+
+                time.sleep(0.8 * (intento + 1))
+
             self.logged_in = False
             return False
 
@@ -391,16 +443,48 @@ class FastSSSaludClient:
 
         worker = self.session_pool.get()
         try:
-            for intento in range(2):
+            # Rotación preventiva de sesión antes de que el servidor la expire por límite de consultas
+            if worker.total_consultas >= MAX_CONSULTAS_POR_SESION:
+                worker.login(force=True)
+
+            max_intentos = 3
+            for intento in range(max_intentos):
+                # Pacing por worker para evitar bloqueos por tasa de consultas de SSSalud
+                ahora = time.time()
+                tiempo_desde_ultimo = ahora - worker.ultimo_request
+                if tiempo_desde_ultimo < ESPERA_ENTRE_CONSULTAS:
+                    time.sleep(ESPERA_ENTRE_CONSULTAS - tiempo_desde_ultimo)
+
                 if not worker.logged_in:
-                    worker.login(force=True)
+                    if not worker.login(force=True):
+                        time.sleep(0.8 * (intento + 1))
+                        continue
 
                 try:
-                    res = worker.session.post(self.QUERY_URL, data=params, verify=False, timeout=10)
-                    text = res.text
+                    worker.ultimo_request = time.time()
+                    res = worker.session.post(self.QUERY_URL, data=params, verify=False, timeout=12)
+                    worker.total_consultas += 1
+                    text = res.text or ""
+                    url_final = res.url.lower()
 
-                    if res.status_code in [401, 403, 429, 500, 502, 503, 504] or ('Ingresar' in text and '_user_name_' in text):
-                        time.sleep(0.3 * (intento + 1))
+                    # Comprobar si la sesión expiró o redirigió al login
+                    es_sesion_caida = (
+                        res.status_code in [401, 403, 429, 500, 502, 503, 504]
+                        or 'login.php' in url_final
+                        or 'b_publica' in url_final
+                        or ('_user_name_' in text and ('submitbtn' in text or 'Ingresar' in text))
+                        or any(k in text.lower() for k in [
+                            'sesión caducada', 'sesion caducada',
+                            'sesión expirada', 'sesion expirada',
+                            'acceso restringido', 'debe identificarse',
+                            'tiempo de espera agotado'
+                        ])
+                    )
+
+                    if es_sesion_caida:
+                        print(f"Sesión {worker.idx} caída o rechazada (HTTP {res.status_code}) para DNI {dni_str}. Reautenticando...")
+                        worker.logged_in = False
+                        time.sleep(0.6 * (intento + 1))
                         worker.login(force=True)
                         continue
 
@@ -410,23 +494,30 @@ class FastSSSaludClient:
                             CACHE_DNI[dni_str] = resultado
                         return resultado
 
-                    # Fallback opcional si el parseo dio error
-                    if self._fallback_sss:
-                        try:
-                            res_fb = self._fallback_sss.query(dni_str)
-                            if res_fb.get("ok"):
-                                resultado = parsear_datos_fallback(res_fb.get("resultados", {}))
-                                if resultado != "ERROR CONSULTA":
-                                    with CACHE_LOCK:
-                                        CACHE_DNI[dni_str] = resultado
-                                    return resultado
-                        except Exception:
-                            pass
+                    # Si el resultado fue ERROR CONSULTA, la respuesta fue anómala o el token se invalidó
+                    print(f"Respuesta inesperada para DNI {dni_str} en worker {worker.idx} (intento {intento+1}/{max_intentos}). Renovando sesión...")
+                    worker.logged_in = False
+                    time.sleep(0.6 * (intento + 1))
+                    worker.login(force=True)
 
                 except Exception as e:
-                    print(f"Error consultando DNI {dni_str} en worker {worker.idx}: {e}")
-                    time.sleep(0.3)
+                    print(f"Error consultando DNI {dni_str} en worker {worker.idx} (intento {intento+1}): {e}")
+                    worker.logged_in = False
+                    time.sleep(0.8 * (intento + 1))
                     worker.login(force=True)
+
+            # Fallback opcional si todos los intentos directos fallaron
+            if self._fallback_sss:
+                try:
+                    res_fb = self._fallback_sss.query(dni_str)
+                    if res_fb.get("ok"):
+                        resultado = parsear_datos_fallback(res_fb.get("resultados", {}))
+                        if resultado != "ERROR CONSULTA":
+                            with CACHE_LOCK:
+                                CACHE_DNI[dni_str] = resultado
+                            return resultado
+                except Exception:
+                    pass
 
             return "ERROR CONSULTA"
         finally:
@@ -630,7 +721,7 @@ def procesar_archivo(
             ultimo_guardado = [time.time()]
 
             def procesar_un_dni(dni):
-                time.sleep(0.02)  # Pequeño espaciado para distribuir la carga entre sesiones
+                time.sleep(0.04)  # Espaciado suave para distribuir la carga entre hilos
                 res = consultar_dni(sss, dni)
                 filas = dni_a_filas[dni]
                 cant = len(filas)
@@ -675,6 +766,26 @@ def procesar_archivo(
                         f.result()
                     except Exception as ex_hilo:
                         print(f"Error en hilo de consulta: {ex_hilo}")
+
+            # Reintento secundario automático para DNIs que tuvieron microcortes temporales
+            dnis_con_error = [d for d in dnis_pendientes if resultados_dni.get(d) == "ERROR CONSULTA"]
+            if dnis_con_error:
+                print(f"Reintentando {len(dnis_con_error)} DNIs con error de consulta temporal...")
+                time.sleep(1.0)
+                for d in dnis_con_error:
+                    time.sleep(0.15)
+                    res_reintento = consultar_dni(sss, d)
+                    if res_reintento != "ERROR CONSULTA":
+                        cant = len(dni_a_filas[d])
+                        resultados_dni[d] = res_reintento
+                        nuevos_para_guardar.append((d, res_reintento))
+                        with lock_estado:
+                            estado["errores"] = max(0, estado["errores"] - cant)
+                            if res_reintento == "NO AFILIADO":
+                                estado["no_afiliados"] += cant
+                            else:
+                                estado["afiliados"] += cant
+                            guardar_estado_proceso(id_proceso, estado)
 
             # Guardar los nuevos en la base de datos persistente SQLite
             if nuevos_para_guardar:

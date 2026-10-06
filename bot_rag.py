@@ -238,36 +238,16 @@ def _buscar_contexto_directo(pregunta: str, max_chars: int = 80000) -> str:
 
 
 def responder(pregunta: str) -> str:
-    """Responde usando ChromaDB (que ya tiene indexados TODOS los documentos
-    incluyendo nomencladores y PDFs). Fallback a lectura directa si falla."""
+    """Responde leyendo los documentos directamente del disco.
+    No usa ChromaDB — lectura directa simple y confiable."""
     try:
         from openai import OpenAI
 
-        contexto = ""
-
-        # 1. Intentar ChromaDB (búsqueda semántica sobre TODO lo indexado)
-        try:
-            retriever = _obtener_vectorstore().as_retriever(
-                search_type="similarity", search_kwargs={"k": 8}
-            )
-            fragmentos = retriever.invoke(pregunta)
-            if fragmentos:
-                contexto = "\n\n".join(
-                    f"[Fuente: {Path(f.metadata.get('source', 'doc')).name}]\n{f.page_content}"
-                    for f in fragmentos
-                )
-                logger.info("ChromaDB: %d fragmentos recuperados", len(fragmentos))
-        except Exception as e:
-            logger.warning("ChromaDB falló: %s — usando lectura directa", e)
-
-        # 2. Fallback: leer documentos directo del disco
-        if not contexto.strip():
-            contexto = _buscar_contexto_directo(pregunta, max_chars=15000)
+        contexto = _buscar_contexto_directo(pregunta, max_chars=30000)
 
         if not contexto.strip():
-            contexto = "No hay documentos cargados en el sistema."
+            return "No hay documentos cargados en el sistema. Subí instructivos o nomencladores primero."
 
-        # 3. Llamar a OpenAI
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             return "Error: falta la variable de entorno OPENAI_API_KEY."
