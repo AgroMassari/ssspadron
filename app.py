@@ -25,6 +25,9 @@ from generador_anexos import (
     extraer_pacientes_afiliados_excel,
     generar_anexos_docx,
     generar_anexos_pdf,
+    buscar_rnos_por_nombre,
+    extraer_rnos_y_obrasocial,
+    formatear_fecha,
 )
 
 # ── Módulos del bot de IA (opcionales: requieren pip install -r requirements.txt) ──
@@ -188,33 +191,6 @@ def limpiar_dni(val):
     return None
 
 
-def extraer_rnos_y_obrasocial(res_dni):
-    """
-    Desglosa el resultado de SSSalud en tupla (rnos, obra_social).
-    Ejemplos:
-      '112000 - O.S. DE LA SANIDAD' -> ('112000', 'O.S. DE LA SANIDAD')
-      'NO AFILIADO' -> ('', 'NO AFILIADO')
-      'ERROR CONSULTA' -> ('', 'ERROR CONSULTA')
-      '112000' -> ('112000', '')
-    """
-    if not res_dni:
-        return "", ""
-    res_str = str(res_dni).strip()
-    if res_str.upper() in ["NO AFILIADO", "ERROR CONSULTA", "SIN DNI", "NONE", "NULL"]:
-        return "", res_str
-
-    if " - " in res_str:
-        partes = res_str.split(" - ", 1)
-        cod = partes[0].strip()
-        den = partes[1].strip()
-        if cod.isdigit() or len(cod) <= 10:
-            return cod, den
-        return "", res_str
-
-    if res_str.isdigit():
-        return res_str, ""
-
-    return "", res_str
 
 
 # ============================================================
@@ -259,6 +235,14 @@ def parsear_respuesta_sss(html_text):
         return "ERROR CONSULTA"
 
     texto = html.unescape(html_text)
+    # Corregir posibles secuencias mojibake UTF-8 decodificadas como latin-1
+    for malo, bueno in [
+        ('Ã³', 'ó'), ('Ã', 'Ó'), ('Ã¡', 'á'), ('Ã', 'Á'),
+        ('Ã©', 'é'), ('Ã', 'É'), ('Ã­', 'í'), ('Ã', 'Í'),
+        ('Ãº', 'ú'), ('Ã', 'Ú'), ('Ã±', 'ñ'), ('Ã', 'Ñ')
+    ]:
+        texto = texto.replace(malo, bueno)
+
     texto_upper = texto.upper()
 
     # 1. NO AFILIADO
@@ -285,23 +269,25 @@ def parsear_respuesta_sss(html_text):
         codigo = None
         denominacion = None
 
+        # Regex flexible para capturar Código de Obra Social / RNOS / RNAS
         m_cod = re.search(
-            r'C(?:ó|o)digo\s+de\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
+            r'(?:C(?:ó|o)digo\s+(?:de\s+)?(?:Obra\s+Social|OS)|RNOS|RNAS).*?<td[^>]*>(?:<[^>]+>)*\s*([0-9\-\.]+)\s*<',
             texto,
             re.I | re.DOTALL
         )
         if m_cod:
             codigo = m_cod.group(1).strip()
 
+        # Regex flexible para capturar Denominación
         m_den = re.search(
-            r'Denominaci(?:ó|o)n\s+Obra\s+Social.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
+            r'Denominaci(?:ó|o)n\s+(?:de\s+)?(?:Obra\s+Social|OS)?.*?<td[^>]*>(?:<[^>]+>)*\s*([^<]+?)\s*<',
             texto,
             re.I | re.DOTALL
         )
         if m_den:
             denominacion = m_den.group(1).strip()
 
-        # Fallback a BeautifulSoup si el regex no capturó ambos
+        # Fallback a BeautifulSoup si falta alguno
         if not (codigo and denominacion):
             try:
                 from bs4 import BeautifulSoup
@@ -309,19 +295,33 @@ def parsear_respuesta_sss(html_text):
                 for tr in soup.find_all('tr'):
                     tds = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
                     if len(tds) >= 2:
-                        k, v = tds[0].lower(), tds[1].strip()
-                        if "código de obra social" in k or "codigo de obra social" in k:
+                        k_clean = re.sub(r'[^a-z0-9]', '', tds[0].lower())
+                        v = tds[1].strip()
+                        if any(x in k_clean for x in ['codigodeobrasocial', 'codigoobrasocial', 'rnos', 'rnas', 'codigoos']):
                             if not codigo and v:
                                 codigo = v
-                        elif "denominación obra social" in k or "denominacion obra social" in k:
+                        elif any(x in k_clean for x in ['denominacionobrasocial', 'denominacionos', 'nombreobrasocial']):
                             if not denominacion and v:
                                 denominacion = v
             except Exception:
                 pass
 
+        # Limpiar y normalizar código numérico
+        if codigo:
+            digs = re.sub(r'\D', '', codigo)
+            if 4 <= len(digs) <= 8:
+                codigo = digs
+
+        # Si aún no tenemos código pero sí denominación, resolver por diccionario oficial
+        if not codigo and denominacion:
+            codigo = buscar_rnos_por_nombre(denominacion)
+
         if codigo and denominacion:
             return f"{codigo} - {denominacion}"
         elif denominacion:
+            cod_fb = buscar_rnos_por_nombre(denominacion)
+            if cod_fb:
+                return f"{cod_fb} - {denominacion}"
             return str(denominacion)
         elif codigo:
             return str(codigo)
@@ -499,7 +499,17 @@ class FastSSSaludClient:
                     worker.ultimo_request = time.time()
                     res = worker.session.post(self.QUERY_URL, data=params, verify=False, timeout=12)
                     worker.total_consultas += 1
-                    text = res.text or ""
+                    try:
+                        if res.encoding and res.encoding.lower() == 'iso-8859-1':
+                            raw_b = res.content
+                            try:
+                                text = raw_b.decode('utf-8')
+                            except UnicodeDecodeError:
+                                text = raw_b.decode('latin-1', errors='replace')
+                        else:
+                            text = res.text or ""
+                    except Exception:
+                        text = res.text or ""
                     url_final = res.url.lower()
 
                     # Comprobar si la sesión expiró o redirigió al login
@@ -798,8 +808,14 @@ def procesar_archivo(
                 cant = len(filas)
 
                 with lock_estado:
-                    resultados_dni[dni] = res
-                    nuevos_para_guardar.append((dni, res))
+                    r_cod, r_den = extraer_rnos_y_obrasocial(res)
+                    if r_cod and r_den and r_cod not in r_den:
+                        res_completo = f"{r_cod} - {r_den}"
+                    else:
+                        res_completo = res
+
+                    resultados_dni[dni] = res_completo
+                    nuevos_para_guardar.append((dni, res_completo))
                     estado["procesadas"] += cant
                     estado["consultas"] += 1
                     estado["fila"] = filas[-1]
@@ -848,8 +864,13 @@ def procesar_archivo(
                     res_reintento = consultar_dni(sss, d)
                     if res_reintento != "ERROR CONSULTA":
                         cant = len(dni_a_filas[d])
-                        resultados_dni[d] = res_reintento
-                        nuevos_para_guardar.append((d, res_reintento))
+                        r_cod, r_den = extraer_rnos_y_obrasocial(res_reintento)
+                        if r_cod and r_den and r_cod not in r_den:
+                            res_reint_comp = f"{r_cod} - {r_den}"
+                        else:
+                            res_reint_comp = res_reintento
+                        resultados_dni[d] = res_reint_comp
+                        nuevos_para_guardar.append((d, res_reint_comp))
                         with lock_estado:
                             estado["errores"] = max(0, estado["errores"] - cant)
                             if res_reintento == "NO AFILIADO":
@@ -1240,7 +1261,8 @@ def generar_anexos_directo():
     archivo.save(temp_excel)
 
     try:
-        pacientes = extraer_pacientes_afiliados_excel(temp_excel)
+        esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
+        pacientes = extraer_pacientes_afiliados_excel(temp_excel, especialidad_defecto=esp_req)
         if not pacientes:
             return """
             <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>
@@ -1288,7 +1310,8 @@ def generar_anexos_pdf_directo():
     archivo.save(temp_excel)
 
     try:
-        pacientes = extraer_pacientes_afiliados_excel(temp_excel)
+        esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
+        pacientes = extraer_pacientes_afiliados_excel(temp_excel, especialidad_defecto=esp_req)
         if not pacientes:
             return """
             <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>
@@ -1326,7 +1349,8 @@ def imprimir_anexos_directo():
     archivo.save(temp_excel)
 
     try:
-        pacientes = extraer_pacientes_afiliados_excel(temp_excel)
+        esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
+        pacientes = extraer_pacientes_afiliados_excel(temp_excel, especialidad_defecto=esp_req)
         if not pacientes:
             return """
             <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>

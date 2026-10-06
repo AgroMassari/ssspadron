@@ -610,6 +610,11 @@
                 <input type="file" id="archivo-anexo-dir" name="archivo" accept=".xlsx" required onchange="document.getElementById('nombre-anexo-dir').textContent = this.files[0] ? this.files[0].name : 'Ningún archivo seleccionado'">
                 <p class="archivo-nombre" id="nombre-anexo-dir">Ningún archivo seleccionado</p>
 
+                <div style="margin-bottom: 15px; background: var(--surface2); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);">
+                    <label style="font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 6px;">🩺 Especialidad médica por defecto:</label>
+                    <input type="text" name="especialidad" value="CARDIOLOGIA" style="width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-weight: bold; font-size: 0.95rem;">
+                </div>
+
                 <div style="display: flex; flex-direction: column; gap: 10px;">
                     <button type="submit" class="btn btn-blue" id="btn-gen-pdf">
                         🖨️ DESCARGAR PDF MASIVO (LISTO PARA IMPRIMIR)

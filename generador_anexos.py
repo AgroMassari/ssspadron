@@ -14,16 +14,199 @@ def escapar_xml(texto):
     return saxutils.escape(str(texto))
 
 
+# Mapeo oficial de las principales Obras Sociales de Argentina a su código RNOS / RNAS (6 dígitos)
+TABLA_RNOS_OFICIAL = [
+    # Metales / UOM
+    ("126205", ["METALURGICA", "METALURGICO", "UOM", "UNION OBRERA METALURGICA", "OBRERA METALURGICA"]),
+    # Comercio / OSECAC
+    ("126304", ["COMERCIO", "OSECAC", "ACTIVIDADES CIVILES", "MERCANTILES", "MERCANTIL"]),
+    # PAMI / INSSJP
+    ("500807", ["PAMI", "INSSJP", "JUBILADOS Y PENSIONADOS", "SERVICIOS SOCIALES PARA JUBILADOS"]),
+    # OSDE
+    ("400800", ["OSDE", "ORGANIZACION DE SERVICIOS DIRECTOS"]),
+    # Sanidad / OSPSA
+    ("112000", ["SANIDAD", "OSPSA", "PERSONAL DE LA SANIDAD", "SANATORIOS"]),
+    # Construcción / UOCRA
+    ("105404", ["CONSTRUCCION", "CONSTRUCCIÓN", "UOCRA", "OBREROS DE LA CONSTRUCCION"]),
+    # Camioneros / OSCHOCA
+    ("104001", ["CAMIONEROS", "CAMIONERO", "CHOFERES DE CAMIONES", "OSCHOCA", "TRANSPORTE DE CARGAS"]),
+    # Rurales / OSPRERA
+    ("119701", ["RURAL", "RURALES", "ESTIBADORES", "OSPRERA", "UATRE"]),
+    # Gastronómicos / OSUTHGRA
+    ("108801", ["GASTRONOMICO", "GASTRONÓMICO", "TURISMO, HOTELERO", "HOTELEROS", "OSUTHGRA", "UTHGRA"]),
+    # UPCN (Personal Civil de la Nación)
+    ("119800", ["CIVIL DE LA NACION", "CIVIL DE LA NACIÓN", "UPCN", "PERSONAL CIVIL"]),
+    # Unión Personal / Accord Salud
+    ("128003", ["UNION PERSONAL", "UNIÓN PERSONAL", "ACCORD"]),
+    # Mecánicos / SMATA
+    ("113706", ["MECANICOS", "MECÁNICOS", "SMATA", "OSMATA"]),
+    # Seguros / OSSEG
+    ("121304", ["SEGUROS", "SEGURO", "OSSEG"]),
+    # Casas Particulares / OSPACP (Empleadas domésticas)
+    ("128508", ["CASAS PARTICULARES", "OSPACP", "DOMESTICA", "DOMÉSTICA"]),
+    # Bancarios / OSBA
+    ("121106", ["BANCARIA", "BANCARIO", "BANCARIOS", "OSBA"]),
+    # OSDEPYM
+    ("125103", ["OSDEPYM", "EMPRESARIOS, PROFESIONALES"]),
+    # Alimentación / STIA / OSPIA
+    ("101600", ["ALIMENTACION", "ALIMENTACIÓN", "OSPIA", "STIA"]),
+    # Carne
+    ("104407", ["CARNE", "INDUSTRIA DE LA CARNE"]),
+    # Químicos
+    ("117005", ["QUIMICOS", "QUÍMICOS", "PETROQUIMICOS", "PETROQUÍMICOS"]),
+    # Plásticos / UOYEP
+    ("115801", ["PLASTICO", "PLÁSTICO", "PLASTICOS", "PLÁSTICOS", "UOYEP"]),
+    # Panaderos / FAUPPA
+    ("114006", ["PANADEROS", "PANADERIA", "PANADERÍA", "FAUPPA"]),
+    # Textiles / SETIA / AOT
+    ("119909", ["TEXTIL", "TEXTILES", "SETIA", "AOT"]),
+    # Madera
+    ("111009", ["MADERA", "MADEREROS"]),
+    # Aguas / SGBATOS
+    ("100508", ["AGUA POTABLE", "AGUAS", "SGBATOS", "OSDAS"]),
+    # Gráficos
+    ("109002", ["GRAFICO", "GRÁFICO", "GRAFICOS", "GRÁFICOS"]),
+    # Porteros / Edificios / SUTERH / OSPERYH
+    ("107400", ["EDIFICIO", "EDIFICIOS", "SUTERH", "OSPERYH", "RENTA Y HORIZONTAL"]),
+    # Ferroviarios / Trenes / OSFE
+    ("120505", ["FERROVIARIO", "FERROVIARIOS", "OSFE"]),
+    # UTA / Colectiveros / Automotor
+    ("120208", ["TRANSPORTE AUTOMOTOR", "UTA", "COLECTIVEROS"]),
+    # Luz y Fuerza / Electricistas
+    ("108007", ["LUZ Y FUERZA", "ELECTRICISTAS"]),
+    # Televisión / SATSAID
+    ("119506", ["TELEVISION", "TELEVISIÓN", "SATSAID", "OSTV"]),
+    # Telecomunicaciones / FOETRA
+    ("119407", ["TELECOMUNICACIONES", "FOETRA", "OSTEL"]),
+    # Petroleros
+    ("115504", ["PETROLERO", "PETROLEROS", "PETROLEO", "PETRÓLEO", "SUPEH"]),
+    # Maestranza / OSPM
+    ("111306", ["MAESTRANZA", "OSPM"]),
+    # Pasteleros y Confiteros
+    ("106209", ["CONFITEROS", "PASTELEROS", "PIZZEROS", "ALFAJOREROS"]),
+    # Calzado
+    ("103804", ["CALZADO", "OSCRA"]),
+    # Vidrio
+    ("120703", ["VIDRIO", "SEIVARA"]),
+    # Papeleros
+    ("114204", ["PAPEL", "PAPELEROS"]),
+    # Cerveceros
+    ("104803", ["CERVECEROS", "CERVECERA"]),
+    # Cuero
+    ("107004", ["CUERO", "CURTIDORES"]),
+    # Docentes Privados / SADOP / OSDOP
+    ("107202", ["DOCENTES PARTICULARES", "DOCENTES PRIVADOS", "SADOP", "OSDOP"]),
+    # Universidades / OSFATUN
+    ("124007", ["UNIVERSIDADES", "NO DOCENTE", "OSFATUN"]),
+    # Personal de Dirección / OSDE / ACCORD / LUIS PASTEUR
+    ("400404", ["LUIS PASTEUR", "DIRECCION DE EMPRESAS", "PERSONAL DE DIRECCION"]),
+    ("400107", ["ASE", "ACCION SOCIAL DE EMPRESARIOS"]),
+    ("126007", ["SWISS MEDICAL", "DOCTHOS"]),
+    ("126502", ["MEDICUS"]),
+    ("126700", ["GALENO"]),
+    ("127000", ["OMINT"]),
+    ("127208", ["SANCOR SALUD", "SANCOR"]),
+    # Sector Público
+    ("500104", ["POLICIA FEDERAL", "POLICÍA FEDERAL", "BIENESTAR"]),
+    ("500203", ["PODER JUDICIAL", "CORTE SUPREMA", "OSPJN"]),
+    ("800109", ["IOSFA", "FUERZAS ARMADAS", "EJERCITO", "ARMADA", "GENDARMERIA", "PREFECTURA"]),
+    ("900100", ["IOMA", "PROVINCIA DE BUENOS AIRES"]),
+    ("900200", ["APROSS", "CORDOBA", "CÓRDOBA"]),
+    ("900300", ["OSEP", "MENDOZA"]),
+    ("900400", ["IPS"]),
+    ("700100", ["OBSBA", "CIUDAD DE BUENOS AIRES"]),
+]
+
+
+def buscar_rnos_por_nombre(nombre_os):
+    """
+    Deduce el código RNOS / RNAS oficial de 6 dígitos a partir del nombre
+    o denominación de la Obra Social.
+    """
+    if not nombre_os:
+        return ""
+    texto_limpio = str(nombre_os).upper()
+    # Si ya contiene un código numérico tipo 1-2620-5 o 126205
+    m = re.search(r'\b(\d{1}-\d{4}-\d{1}|\d{4,6})\b', texto_limpio)
+    if m:
+        digs = re.sub(r'\D', '', m.group(1))
+        if 4 <= len(digs) <= 8:
+            return digs
+    for cod, keywords in TABLA_RNOS_OFICIAL:
+        for kw in keywords:
+            if kw in texto_limpio:
+                return cod
+    return ""
+
+
+def extraer_rnos_y_obrasocial(res_dni):
+    """
+    Desglosa el resultado en tupla (rnos, obra_social).
+    Resuelve el código RNOS / RNAS si viene con guiones o si solo se tiene el nombre.
+    """
+    if not res_dni:
+        return "", ""
+    res_str = str(res_dni).strip()
+    if res_str.upper() in ["NO AFILIADO", "ERROR CONSULTA", "SIN DNI", "NONE", "NULL", ""]:
+        return "", res_str
+
+    rnos = ""
+    obra_social = res_str
+
+    # 1. Si viene con separador " - " (ej. "126205 - OBRA SOCIAL..." o "1-2620-5 - OBRA SOCIAL...")
+    if " - " in res_str:
+        partes = res_str.split(" - ", 1)
+        cod_candidato = partes[0].strip()
+        den_candidata = partes[1].strip()
+        digs = re.sub(r'\D', '', cod_candidato)
+        if 4 <= len(digs) <= 8:
+            rnos = digs
+            obra_social = den_candidata
+        elif len(cod_candidato) <= 10:
+            rnos = cod_candidato
+            obra_social = den_candidata
+    elif res_str.isdigit() and (4 <= len(res_str) <= 8):
+        rnos = res_str
+        obra_social = ""
+
+    # 2. Si RNOS sigue vacío, resolver por nombre
+    if not rnos and obra_social:
+        rnos = buscar_rnos_por_nombre(obra_social)
+
+    return rnos, obra_social
+
+
 def formatear_fecha(valor):
+    """
+    Formatea la fecha de atención estrictamente como 'DD / MM / YYYY' con espacios
+    entre barras para adaptarse limpiamente al primer recuadro del Anexo II.
+    """
     if valor is None:
         return ""
     if isinstance(valor, (datetime, date)):
-        return valor.strftime("%d/%m/%Y")
+        return valor.strftime("%d / %m / %Y")
     val_str = str(valor).strip()
-    # Si viene como YYYY/MM/DD o YYYY-MM-DD
-    m = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})', val_str)
+    if not val_str:
+        return ""
+    val_str = val_str.split()[0].split('T')[0]
+    # YYYY/MM/DD o YYYY-MM-DD
+    m = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$', val_str)
     if m:
-        return f"{int(m.group(3)):02d}/{int(m.group(2)):02d}/{m.group(1)}"
+        return f"{int(m.group(3)):02d} / {int(m.group(2)):02d} / {m.group(1)}"
+    # DD/MM/YYYY o DD-MM-YYYY
+    m2 = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$', val_str)
+    if m2:
+        anio = m2.group(3)
+        if len(anio) == 2:
+            anio = f"20{anio}"
+        return f"{int(m2.group(1)):02d} / {int(m2.group(2)):02d} / {anio}"
+    # Si ya viene con espacios tipo "06 / 08 / 2026"
+    m3 = re.match(r'^(\d{1,2})\s*[-/]\s*(\d{1,2})\s*[-/]\s*(\d{2,4})$', val_str)
+    if m3:
+        anio = m3.group(3)
+        if len(anio) == 2:
+            anio = f"20{anio}"
+        return f"{int(m3.group(1)):02d} / {int(m3.group(2)):02d} / {anio}"
     return val_str
 
 
@@ -103,32 +286,52 @@ def _renderizar_tabla_paciente(tabla_template, paciente):
             )
             filas[8] = filas[8].replace(r8_cells[18], c18_edad, 1)
 
-    # 3. R1 y R11: Fecha de atención (ingreso y egreso va la misma desde-hasta)
+    # 3. R1 y R11: Fecha de atención (en el primer recuadro de 3, con formato DD / MM / YYYY)
     fecha = paciente.get("fecha", "")
     if fecha:
-        # Cabecera (R1 celda 3)
+        fecha_fmt = formatear_fecha(fecha)
+
+        # Cabecera (R1 celda 1: el primer cuadrito de los 3 bajo 'Fecha')
         r1_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[1])
         if len(r1_cells) >= 4:
-            c_fec = re.sub(
+            c1_fec = re.sub(
                 r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-                rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>{escapar_xml(fecha)}</w:t></w:r>\3',
-                r1_cells[3],
+                rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="14"/><w:szCs w:val="14"/></w:rPr><w:t>{escapar_xml(fecha_fmt)}</w:t></w:r>\3',
+                r1_cells[1],
                 count=1
             )
-            filas[1] = filas[1].replace(r1_cells[3], c_fec, 1)
+            if '<w:tcPr>' in c1_fec and '<w:noWrap/>' not in c1_fec:
+                c1_fec = c1_fec.replace('</w:tcPr>', '<w:noWrap/></w:tcPr>', 1)
 
-        # Fecha de prestación (R11 celda 3)
+            c1_vacio2 = re.sub(r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)', r'\1\3', r1_cells[2], count=1)
+            c1_vacio3 = re.sub(r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)', r'\1\3', r1_cells[3], count=1)
+
+            filas[1] = (filas[1]
+                        .replace(r1_cells[1], c1_fec, 1)
+                        .replace(r1_cells[2], c1_vacio2, 1)
+                        .replace(r1_cells[3], c1_vacio3, 1))
+
+        # Fecha de prestación (R11 celda 1: el primer cuadrito de los 3 bajo 'Fecha de prestación')
         r11_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[11])
         if len(r11_cells) >= 4:
-            c_fec2 = re.sub(
+            c11_fec = re.sub(
                 r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-                rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>{escapar_xml(fecha)}</w:t></w:r>\3',
-                r11_cells[3],
+                rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="14"/><w:szCs w:val="14"/></w:rPr><w:t>{escapar_xml(fecha_fmt)}</w:t></w:r>\3',
+                r11_cells[1],
                 count=1
             )
-            filas[11] = filas[11].replace(r11_cells[3], c_fec2, 1)
+            if '<w:tcPr>' in c11_fec and '<w:noWrap/>' not in c11_fec:
+                c11_fec = c11_fec.replace('</w:tcPr>', '<w:noWrap/></w:tcPr>', 1)
 
-    # 4. R12: Tipo de atención (Consulta c1 = X, Especialidad c3)
+            c11_vacio2 = re.sub(r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)', r'\1\3', r11_cells[2], count=1)
+            c11_vacio3 = re.sub(r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)', r'\1\3', r11_cells[3], count=1)
+
+            filas[11] = (filas[11]
+                         .replace(r11_cells[1], c11_fec, 1)
+                         .replace(r11_cells[2], c11_vacio2, 1)
+                         .replace(r11_cells[3], c11_vacio3, 1))
+
+    # 4. R12: Tipo de atención (Consulta c1 = X, Especialidad c3 = CARDIOLOGIA por defecto)
     r12_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[12])
     if len(r12_cells) >= 4:
         c1_cons = re.sub(
@@ -137,7 +340,10 @@ def _renderizar_tabla_paciente(tabla_template, paciente):
             r12_cells[1],
             count=1
         )
-        servicio = paciente.get("servicio", "CONSULTA")
+        servicio = str(paciente.get("servicio", "")).strip()
+        if not servicio or servicio.upper() in ["CONSULTA", "CONSULTAS", "CONSULTA MEDICA", "AMBULATORIO", "AMBULATORIA", "GUARDIA", "CONSULTA EXTERNA"]:
+            servicio = "CARDIOLOGIA"
+
         c3_serv = re.sub(
             r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
             rf'\1<w:pPr><w:ind w:left="60"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>{escapar_xml(servicio)}</w:t></w:r>\3',
@@ -159,7 +365,7 @@ def _renderizar_tabla_paciente(tabla_template, paciente):
             )
             filas[13] = filas[13].replace(r13_cells[3], c3_diag, 1)
 
-    # 6. R21: Obra Social en c0, RNOS en c1
+    # 6. R21: Obra Social en c0, RNAS en c1
     r21_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[21])
     if len(r21_cells) >= 3:
         obra_social = paciente.get("obra_social", "")
@@ -170,18 +376,20 @@ def _renderizar_tabla_paciente(tabla_template, paciente):
             count=1
         )
         rnos = paciente.get("rnos", "")
-        c1_rnos = re.sub(
-            r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-            rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>{escapar_xml(rnos)}</w:t></w:r>\3',
-            r21_cells[1],
-            count=1
-        )
+        if not rnos and obra_social:
+            rnos = buscar_rnos_por_nombre(obra_social)
+
+        # Reemplazar celda de RNAS con un único párrafo centrado y limpio
+        tcPr_m = re.search(r'<w:tcPr>[\s\S]*?</w:tcPr>', r21_cells[1])
+        tcPr_xml = tcPr_m.group(0) if tcPr_m else '<w:tcPr><w:tcW w:w="1204" w:type="dxa"/><w:gridSpan w:val="4"/><w:vAlign w:val="center"/></w:tcPr>'
+        c1_rnos = f'<w:tc>{tcPr_xml}<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>{escapar_xml(rnos)}</w:t></w:r></w:p></w:tc>'
+
         filas[21] = filas[21].replace(r21_cells[0], c0_os, 1).replace(r21_cells[1], c1_rnos, 1)
 
     return f"{encabezado_tabla}{''.join(filas)}</w:tbl>"
 
 
-def extraer_pacientes_afiliados_excel(excel_path):
+def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLOGIA"):
     """
     Lee un Excel (original o ya verificado) y extrae todos los registros
     con Obra Social válida para generar los Anexos II.
@@ -283,8 +491,9 @@ def extraer_pacientes_afiliados_excel(excel_path):
             if raw_os and raw_os.upper() not in ["NO AFILIADO", "SIN DNI", "ERROR CONSULTA", "NONE", ""]:
                 if " - " in raw_os:
                     partes = raw_os.split(" - ", 1)
-                    if partes[0].strip().isdigit():
-                        rnos_val = partes[0].strip()
+                    digs = re.sub(r'\D', '', partes[0])
+                    if 4 <= len(digs) <= 8:
+                        rnos_val = digs
                         os_val = partes[1].strip()
                     else:
                         os_val = raw_os
@@ -293,8 +502,15 @@ def extraer_pacientes_afiliados_excel(excel_path):
 
         if col_rnos and not rnos_val:
             raw_rnos = str(ws.cell(fila, col_rnos).value or "").strip()
-            if raw_rnos and raw_rnos.isdigit():
+            digs_r = re.sub(r'\D', '', raw_rnos)
+            if 4 <= len(digs_r) <= 8:
+                rnos_val = digs_r
+            elif raw_rnos and raw_rnos.upper() not in ["NONE", "NULL", ""]:
                 rnos_val = raw_rnos
+
+        # Si aún no tenemos RNOS, resolver por nombre de la Obra Social
+        if not rnos_val and os_val:
+            rnos_val = buscar_rnos_por_nombre(os_val)
 
         # Solo pacientes que tengan Obra Social identificada
         if not os_val or os_val.upper() in ["NO AFILIADO", "SIN DNI", "ERROR CONSULTA"]:
@@ -302,7 +518,9 @@ def extraer_pacientes_afiliados_excel(excel_path):
 
         nombre_val = str(ws.cell(fila, col_paciente).value or "").strip()
         fecha_val = formatear_fecha(ws.cell(fila, col_fecha).value)
-        serv_val = str(ws.cell(fila, col_prestacion).value or "CONSULTA").strip()
+        serv_val = str(ws.cell(fila, col_prestacion).value or "").strip()
+        if not serv_val or serv_val.upper() in ["CONSULTA", "CONSULTAS", "CONSULTA MEDICA", "AMBULATORIO", "AMBULATORIA", "GUARDIA", "CONSULTA EXTERNA"]:
+            serv_val = especialidad_defecto or "CARDIOLOGIA"
         diag_val = str(ws.cell(fila, col_diagnostico).value or "").strip()
         sexo_val = str(ws.cell(fila, col_sexo).value or "").strip() if col_sexo else ""
         edad_val = str(ws.cell(fila, col_edad).value or "").strip() if col_edad else ""
@@ -450,11 +668,15 @@ def generar_anexos_pdf(pacientes, ruta_salida_pdf):
     for idx, pac in enumerate(pacientes):
         nombre = pac.get("nombre", "")
         dni = pac.get("dni", "")
-        fecha = pac.get("fecha", "")
-        servicio = pac.get("servicio", "CONSULTA")
+        fecha = formatear_fecha(pac.get("fecha", ""))
+        servicio = str(pac.get("servicio", "")).strip()
+        if not servicio or servicio.upper() in ["CONSULTA", "CONSULTAS", "CONSULTA MEDICA", "AMBULATORIO", "AMBULATORIA", "GUARDIA", "CONSULTA EXTERNA"]:
+            servicio = "CARDIOLOGIA"
         diagnostico = pac.get("diagnostico", "")
         obra_social = pac.get("obra_social", "")
         rnos = pac.get("rnos", "")
+        if not rnos and obra_social:
+            rnos = buscar_rnos_por_nombre(obra_social)
         sexo = str(pac.get("sexo", "")).strip().upper()
         edad = str(pac.get("edad", "")).strip()
 
