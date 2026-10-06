@@ -173,6 +173,16 @@
             ⬇️ DESCARGAR EXCEL PROCESADO
         </a>
 
+        {% if archivo_anexos %}
+        <a
+            class="boton"
+            style="background: #4f46e5; margin-top: 10px;"
+            href="/descargar/{{ archivo_anexos }}"
+        >
+            📄 DESCARGAR ANEXOS II (WORD .DOCX)
+        </a>
+        {% endif %}
+
         <a
             class="boton"
             href="/"

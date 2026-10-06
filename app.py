@@ -21,6 +21,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import openpyxl
 from flask import Flask, request, render_template, send_file, jsonify
 
+from generador_anexos import (
+    extraer_pacientes_afiliados_excel,
+    generar_anexos_docx,
+)
+
 # ── Módulos del bot de IA (opcionales: requieren pip install -r requirements.txt) ──
 try:
     from bot_rag import (
@@ -180,6 +185,35 @@ def limpiar_dni(val):
     if 5 <= len(digitos) <= 9:
         return digitos
     return None
+
+
+def extraer_rnos_y_obrasocial(res_dni):
+    """
+    Desglosa el resultado de SSSalud en tupla (rnos, obra_social).
+    Ejemplos:
+      '112000 - O.S. DE LA SANIDAD' -> ('112000', 'O.S. DE LA SANIDAD')
+      'NO AFILIADO' -> ('', 'NO AFILIADO')
+      'ERROR CONSULTA' -> ('', 'ERROR CONSULTA')
+      '112000' -> ('112000', '')
+    """
+    if not res_dni:
+        return "", ""
+    res_str = str(res_dni).strip()
+    if res_str.upper() in ["NO AFILIADO", "ERROR CONSULTA", "SIN DNI", "NONE", "NULL"]:
+        return "", res_str
+
+    if " - " in res_str:
+        partes = res_str.split(" - ", 1)
+        cod = partes[0].strip()
+        den = partes[1].strip()
+        if cod.isdigit() or len(cod) <= 10:
+            return cod, den
+        return "", res_str
+
+    if res_str.isdigit():
+        return res_str, ""
+
+    return "", res_str
 
 
 # ============================================================
@@ -600,30 +634,72 @@ def procesar_archivo(
         ultima_fila = ws.max_row
 
         # ----------------------------------------------------
-        # 2. DETERMINAR COLUMNA DESTINO DE OBRA SOCIAL
+        # 2. DETECCIÓN DINÁMICA DE ENCABEZADOS Y COLUMNAS
         # ----------------------------------------------------
-        col_obra_social = COLUMNA_OBRA_SOCIAL
-        fila_encabezado = max(1, FILA_INICIO - 1)
-        encontrada = False
+        fila_encabezado = None
+        col_dni = None
+        col_rnos = None
+        col_obra_social = None
+        max_col_detectada = 1
 
-        # Si en los encabezados ya existe una columna de obra social
-        for c in range(1, 20):
-            val_h = str(ws.cell(fila_encabezado, c).value or "").strip().lower()
-            if any(k in val_h for k in ["obra social", "cobertura", "prepaga", "afiliacion", "o.s."]):
-                col_obra_social = c
-                encontrada = True
+        # Escanear filas 1 a 45 buscando la fila que tenga DNI / Documento
+        for f in range(1, min(45, ultima_fila + 1)):
+            for c in range(1, 40):
+                val = str(ws.cell(f, c).value or "").strip().lower()
+                if val:
+                    max_col_detectada = max(max_col_detectada, c)
+                    if not fila_encabezado and any(k in val for k in ["dni", "documento", "nro doc", "nro. doc", "doc"]):
+                        fila_encabezado = f
+                        col_dni = c
+
+            if fila_encabezado:
                 break
 
-        # Si no existe, y la columna 7 actual está ocupada (ej. 'Fecha ingreso'), agregar columna a la derecha
-        if not encontrada:
-            val_col7 = str(ws.cell(fila_encabezado, COLUMNA_OBRA_SOCIAL).value or "").strip().lower()
-            if val_col7 and not any(k in val_col7 for k in ["obra social", "cobertura", "prepaga"]):
-                max_col = max([c for c in range(1, 30) if ws.cell(fila_encabezado, c).value is not None] or [COLUMNA_OBRA_SOCIAL])
-                col_obra_social = max_col + 1
-                try:
-                    ws.cell(fila_encabezado, col_obra_social).value = "Obra Social (SSSalud)"
-                except Exception:
-                    pass
+        # Si no se detectó fila por texto de encabezado, buscar la primera con DNI numérico
+        if not fila_encabezado:
+            for f in range(1, min(50, ultima_fila + 1)):
+                d_val = limpiar_dni(ws.cell(f, COLUMNA_DNI).value)
+                if d_val:
+                    fila_encabezado = max(1, f - 1)
+                    col_dni = COLUMNA_DNI
+                    break
+
+        fila_encabezado = fila_encabezado or 1
+        col_dni = col_dni or COLUMNA_DNI
+        fila_inicio_datos = fila_encabezado + 1
+
+        # En la fila de encabezados, buscar si ya existen columnas para RNOS y Obra Social
+        for c in range(1, 40):
+            val_h = str(ws.cell(fila_encabezado, c).value or "").strip().lower()
+            if not val_h:
+                continue
+            max_col_detectada = max(max_col_detectada, c)
+            if any(k in val_h for k in ["rnos", "rnas", "código os", "codigo os"]):
+                col_rnos = c
+            elif any(k in val_h for k in ["obra social", "obrasocial", "cobertura", "prepaga", "o.s."]):
+                col_obra_social = c
+
+        # Si no existen, ubicarlas al final de la tabla (fuera de cualquier celda combinada)
+        if not col_rnos and not col_obra_social:
+            col_rnos = max_col_detectada + 1
+            col_obra_social = max_col_detectada + 2
+            try:
+                ws.cell(fila_encabezado, col_rnos).value = "RNOS"
+                ws.cell(fila_encabezado, col_obra_social).value = "OBRA SOCIAL"
+            except Exception:
+                pass
+        elif not col_rnos:
+            col_rnos = max(max_col_detectada, col_obra_social) + 1
+            try:
+                ws.cell(fila_encabezado, col_rnos).value = "RNOS"
+            except Exception:
+                pass
+        elif not col_obra_social:
+            col_obra_social = max(max_col_detectada, col_rnos) + 1
+            try:
+                ws.cell(fila_encabezado, col_obra_social).value = "OBRA SOCIAL"
+            except Exception:
+                pass
 
         # ----------------------------------------------------
         # 3. BUSCAR FILAS CON DNI VÁLIDO Y AGRUPAR
@@ -631,23 +707,13 @@ def procesar_archivo(
         dni_a_filas = defaultdict(list)
         total_filas = 0
 
-        for fila in range(FILA_INICIO, ultima_fila + 1):
-            dni_val = ws.cell(fila, COLUMNA_DNI).value
+        for fila in range(fila_inicio_datos, ultima_fila + 1):
+            dni_val = ws.cell(fila, col_dni).value
             dni_limpio = limpiar_dni(dni_val)
             if not dni_limpio:
                 continue
             dni_a_filas[dni_limpio].append(fila)
             total_filas += 1
-
-        # Fallback si las filas empezaban antes de FILA_INICIO
-        if total_filas == 0 and ultima_fila >= 2:
-            for fila in range(2, min(FILA_INICIO, ultima_fila + 1)):
-                dni_val = ws.cell(fila, COLUMNA_DNI).value
-                dni_limpio = limpiar_dni(dni_val)
-                if not dni_limpio:
-                    continue
-                dni_a_filas[dni_limpio].append(fila)
-                total_filas += 1
 
         dnis_unicos = list(dni_a_filas.keys())
         total = total_filas
@@ -661,6 +727,10 @@ def procesar_archivo(
         print("====================================================")
         print("       PROCESAMIENTO SSSALUD ULTRARRÁPIDO")
         print("====================================================")
+        print("Fila encabezado detectada:", fila_encabezado)
+        print("Columna DNI:", col_dni)
+        print("Columna RNOS:", col_rnos)
+        print("Columna Obra Social:", col_obra_social)
         print("Última fila del Excel:", ultima_fila)
         print("Registros válidos de pacientes:", total)
         print("Total de DNIs únicos a consultar:", len(dnis_unicos))
@@ -792,34 +862,61 @@ def procesar_archivo(
                 guardar_cache_multiples(nuevos_para_guardar)
 
         # ----------------------------------------------------
-        # 6. ESCRIBIR RESULTADOS EN EXCEL (CON PROTECCIÓN MERGEDCELL)
+        # 6. ESCRIBIR RESULTADOS EN EXCEL (RNOS Y OBRA SOCIAL)
         # ----------------------------------------------------
         print("Escribiendo resultados en memoria...")
         for dni, filas in dni_a_filas.items():
             res_dni = resultados_dni.get(dni, "ERROR CONSULTA")
+            rnos_val, os_val = extraer_rnos_y_obrasocial(res_dni)
+
             for fila in filas:
-                try:
-                    cell = ws.cell(fila, col_obra_social)
-                    if type(cell).__name__ == "MergedCell":
-                        continue
-                    cell.value = res_dni
-                except (AttributeError, Exception) as err_cell:
-                    print(f"No se pudo escribir en fila {fila}: {err_cell}")
+                # Escribir RNOS
+                if col_rnos:
+                    try:
+                        cell_r = ws.cell(fila, col_rnos)
+                        if type(cell_r).__name__ != "MergedCell":
+                            cell_r.value = rnos_val
+                    except Exception as e_r:
+                        print(f"Error escribiendo RNOS fila {fila}: {e_r}")
+
+                # Escribir Obra Social
+                if col_obra_social:
+                    try:
+                        cell_o = ws.cell(fila, col_obra_social)
+                        if type(cell_o).__name__ != "MergedCell":
+                            cell_o.value = os_val
+                    except Exception as e_o:
+                        print(f"Error escribiendo Obra Social fila {fila}: {e_o}")
 
         # ----------------------------------------------------
-        # 7. GUARDADO FINAL ÚNICO
+        # 7. GUARDADO FINAL DE EXCEL
         # ----------------------------------------------------
         estado["estado"] = "guardando"
         guardar_estado_proceso(id_proceso, estado)
         wb.save(archivo_salida)
 
         # ----------------------------------------------------
-        # 8. FINALIZADO
+        # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX)
+        # ----------------------------------------------------
+        archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
+        cant_anexos = 0
+        try:
+            pacientes_afiliados = extraer_pacientes_afiliados_excel(archivo_salida)
+            if pacientes_afiliados:
+                cant_anexos = generar_anexos_docx(pacientes_afiliados, archivo_anexos)
+                print(f"Se generaron exitosamente {cant_anexos} Anexos II en: {archivo_anexos.name}")
+        except Exception as e_anexos:
+            print(f"Aviso al generar Anexos II automáticos: {e_anexos}")
+
+        # ----------------------------------------------------
+        # 9. FINALIZADO
         # ----------------------------------------------------
         estado["estado"] = "terminado"
         estado["procesadas"] = total
         estado["porcentaje"] = 100
         estado["archivo"] = Path(archivo_salida).name
+        estado["archivo_anexos"] = Path(archivo_anexos).name if cant_anexos > 0 else ""
+        estado["anexos_generados"] = cant_anexos
         estado["segundos"] = round(time.time() - inicio, 1)
         estado["estimado_restante"] = 0
         guardar_estado_proceso(id_proceso, estado)
@@ -833,6 +930,7 @@ def procesar_archivo(
         print("Afiliados:", estado["afiliados"])
         print("No afiliados:", estado["no_afiliados"])
         print("Errores:", estado["errores"])
+        print(f"Anexos II Word generados: {cant_anexos}")
         print("====================================================")
 
     except Exception as e:
@@ -1014,6 +1112,87 @@ def descargar(nombre):
         archivo,
         as_attachment=True
     )
+
+
+# ============================================================
+# DESCARGAR ANEXOS II GENERADOS
+# ============================================================
+
+@app.route("/descargar_anexos/<id_proceso>")
+def descargar_anexos(id_proceso):
+    archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
+    if archivo_anexos.exists():
+        return send_file(
+            archivo_anexos,
+            as_attachment=True,
+            download_name=f"Anexos_II_{id_proceso[:8]}.docx"
+        )
+
+    estado = obtener_estado_proceso(id_proceso)
+    if estado and estado.get("archivo"):
+        archivo_salida = RESULT_DIR / estado["archivo"]
+        if archivo_salida.exists():
+            try:
+                pacientes = extraer_pacientes_afiliados_excel(archivo_salida)
+                if pacientes:
+                    generar_anexos_docx(pacientes, archivo_anexos)
+                    return send_file(
+                        archivo_anexos,
+                        as_attachment=True,
+                        download_name=f"Anexos_II_{id_proceso[:8]}.docx"
+                    )
+            except Exception as e:
+                return f"Error generando anexos: {e}", 500
+
+    return "No se encontraron anexos para este proceso o no hay pacientes afiliados.", 404
+
+
+# ============================================================
+# GENERADOR DIRECTO DE ANEXOS II (DESDE EXCEL YA VERIFICADO)
+# ============================================================
+
+@app.route("/generar_anexos", methods=["POST"])
+def generar_anexos_directo():
+    archivo = request.files.get("archivo")
+    if not archivo or archivo.filename == "":
+        return """
+        <h2>No se seleccionó ningún archivo Excel.</h2>
+        <a href="/">Volver</a>
+        """, 400
+
+    if not archivo.filename.lower().endswith(".xlsx"):
+        return """
+        <h2>El archivo debe ser un Excel (.xlsx)</h2>
+        <a href="/">Volver</a>
+        """, 400
+
+    identificador = uuid.uuid4().hex
+    temp_excel = UPLOAD_DIR / f"anexo_upload_{identificador}.xlsx"
+    temp_docx = RESULT_DIR / f"anexos_II_{identificador}.docx"
+    archivo.save(temp_excel)
+
+    try:
+        pacientes = extraer_pacientes_afiliados_excel(temp_excel)
+        if not pacientes:
+            return """
+            <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>
+            <p>Asegurate de que el archivo contenga columnas con DNI, Paciente y Obra Social verificada.</p>
+            <a href="/">Volver al inicio</a>
+            """, 400
+
+        generar_anexos_docx(pacientes, temp_docx)
+        nombre_descarga = f"Anexos_II_{Path(archivo.filename).stem}.docx"
+        return send_file(
+            temp_docx,
+            as_attachment=True,
+            download_name=nombre_descarga
+        )
+    except Exception as e:
+        return f"""
+        <h2>Error generando Anexos II</h2>
+        <p>{e}</p>
+        <a href="/">Volver</a>
+        """, 500
 
 
 # ============================================================

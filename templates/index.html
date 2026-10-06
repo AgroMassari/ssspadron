@@ -92,6 +92,7 @@
         .icon-purple { background: rgba(108,99,255,0.15); }
         .icon-green  { background: rgba(37,211,102,0.15); }
         .icon-orange { background: rgba(245,158,11,0.15); }
+        .icon-blue   { background: rgba(59,130,246,0.15); }
 
         .card-title { font-size: 1.1rem; font-weight: 600; }
         .card-desc  { font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
@@ -112,6 +113,7 @@
         .zona-drop:hover        { border-color: var(--accent);  background: rgba(108,99,255,0.06); }
         .zona-drop.verde:hover  { border-color: var(--green);   background: rgba(37,211,102,0.06); }
         .zona-drop.naranja:hover{ border-color: var(--orange);  background: rgba(245,158,11,0.06); }
+        .zona-drop.azul:hover   { border-color: #3b82f6;        background: rgba(59,130,246,0.06); }
 
         .zona-icono { font-size: 2.2rem; margin-bottom: 10px; }
         .zona-texto { font-size: 0.9rem; color: var(--muted); }
@@ -142,6 +144,7 @@
         .btn-purple { background: linear-gradient(135deg, #6c63ff, #8a7fff); color: white; }
         .btn-green  { background: linear-gradient(135deg, #25d366, #1da854); color: white; }
         .btn-orange { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+        .btn-blue   { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
 
         /* ── Nombre archivo ── */
         .archivo-nombre {
@@ -579,6 +582,39 @@
                     📋 Copiar resultado
                 </button>
             </div>
+
+        </div>
+
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- CARD 3: Generador de Anexos II (RS 1610)           -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div class="card">
+
+            <div class="card-header">
+                <div class="card-icon icon-blue">📄</div>
+                <div>
+                    <div class="card-title">Generador de Anexos II (Word .docx)</div>
+                    <div class="card-desc">Subí un Excel con pacientes y Obra Social verificada y generá las fojas oficiales de Anexo II en Word listas para presentar</div>
+                </div>
+            </div>
+
+            <form action="/generar_anexos" method="POST" enctype="multipart/form-data">
+
+                <label for="archivo-anexo-dir" id="zona-anexo" class="zona-drop azul">
+                    <div class="zona-icono">📑</div>
+                    <div class="zona-texto">
+                        <strong style="color: var(--text);">Seleccioná el archivo Excel (.xlsx)</strong><br>
+                        Generará 1 página oficial con membrete por cada afiliado encontrado
+                    </div>
+                </label>
+                <input type="file" id="archivo-anexo-dir" name="archivo" accept=".xlsx" required onchange="document.getElementById('nombre-anexo-dir').textContent = this.files[0] ? this.files[0].name : 'Ningún archivo seleccionado'">
+                <p class="archivo-nombre" id="nombre-anexo-dir">Ningún archivo seleccionado</p>
+
+                <button type="submit" class="btn btn-blue" id="btn-gen-anexos">
+                    📄 GENERAR ANEXOS II EN WORD
+                </button>
+
+            </form>
 
         </div>
 

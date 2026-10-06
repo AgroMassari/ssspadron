@@ -293,12 +293,23 @@
             class="error oculto">
         </div>
 
-        <a
-            id="botonDescarga"
-            class="boton oculto"
-            href="#">
-            ⬇️ DESCARGAR EXCEL
-        </a>
+        <div id="contenedorDescargas" class="oculto" style="margin-top: 25px;">
+            <a
+                id="botonDescarga"
+                class="boton"
+                style="background: #16a34a; margin-top: 0; margin-bottom: 12px;"
+                href="#">
+                📊 DESCARGAR EXCEL PROCESADO
+            </a>
+            <a
+                id="botonAnexos"
+                class="boton oculto"
+                style="background: #4f46e5; margin-top: 0;"
+                href="#">
+                📄 DESCARGAR ANEXOS II (WORD .DOCX)
+            </a>
+            <div id="infoAnexos" style="text-align: center; font-size: 14px; color: #4b5563; margin-top: 8px;"></div>
+        </div>
 
     </div>
 
@@ -442,19 +453,22 @@ function actualizarProgreso() {
                 data.estado ===
                 "terminado"
             ) {
+                const contenedor = document.getElementById("contenedorDescargas");
+                const botonExcel = document.getElementById("botonDescarga");
+                const botonAnexos = document.getElementById("botonAnexos");
+                const infoAnexos = document.getElementById("infoAnexos");
 
-                const boton =
-                    document.getElementById(
-                        "botonDescarga"
-                    );
+                botonExcel.href = "/descargar/" + data.archivo;
+                contenedor.classList.remove("oculto");
 
-                boton.href =
-                    "/descargar/"
-                    + data.archivo;
-
-                boton.classList.remove(
-                    "oculto"
-                );
+                if (data.archivo_anexos) {
+                    botonAnexos.href = "/descargar/" + data.archivo_anexos;
+                    botonAnexos.classList.remove("oculto");
+                    infoAnexos.textContent = "✅ Se generaron " + (data.anexos_generados || 0) + " fojas de Anexo II para afiliados.";
+                } else if ((data.afiliados || 0) > 0) {
+                    botonAnexos.href = "/descargar_anexos/" + idProceso;
+                    botonAnexos.classList.remove("oculto");
+                }
 
                 return;
             }
