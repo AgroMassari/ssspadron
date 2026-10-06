@@ -28,6 +28,7 @@ from generador_anexos import (
     buscar_rnos_por_nombre,
     extraer_rnos_y_obrasocial,
     formatear_fecha,
+    ordenar_pacientes_anexos,
 )
 
 # ── Módulos del bot de IA (opcionales: requieren pip install -r requirements.txt) ──

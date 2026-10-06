@@ -538,17 +538,60 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
             "edad": edad_val
         })
 
-    return pacientes
+    return ordenar_pacientes_anexos(pacientes)
+
+
+def parsear_fecha_para_orden(fecha_str):
+    """
+    Convierte cualquier formato de fecha a 'YYYY-MM-DD' para ordenamiento cronológico.
+    """
+    if not fecha_str:
+        return "9999-99-99"
+    f = str(fecha_str).strip()
+    m = re.match(r'^(\d{1,2})\s*[-/]\s*(\d{1,2})\s*[-/]\s*(\d{2,4})', f)
+    if m:
+        d, mth, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 2000
+        return f"{y:04d}-{mth:02d}-{d:02d}"
+    m2 = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})', f)
+    if m2:
+        return f"{int(m2.group(1)):04d}-{int(m2.group(2)):02d}-{int(m2.group(3)):02d}"
+    return f
+
+
+def ordenar_pacientes_anexos(pacientes):
+    """
+    Ordena la lista de pacientes agrupando primero por código RNOS (u Obra Social),
+    luego cronológicamente por Fecha de prestación (antigua a reciente),
+    y finalmente por Apellido y Nombre.
+    """
+    if not pacientes:
+        return []
+
+    def clave_orden(p):
+        rnos = str(p.get("rnos") or "").strip()
+        os_nom = str(p.get("obra_social") or "").strip().upper()
+        # Agrupación por código RNOS (si no tiene, por nombre de obra social al final)
+        cod_agrupacion = rnos if rnos else f"ZZZ_{os_nom}"
+        fecha_ord = parsear_fecha_para_orden(p.get("fecha"))
+        nombre = str(p.get("nombre") or "").strip().upper()
+        return (cod_agrupacion, fecha_ord, nombre)
+
+    return sorted(pacientes, key=clave_orden)
 
 
 def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None):
     """
     Genera un documento Word único (.docx) con todas las fojas de Anexo II,
     una página completa (encabezado oficial + tabla del paciente) por cada paciente afiliado,
-    separadas por saltos de página.
+    organizadas por Obra Social (RNOS) y cronológicamente por fecha, separadas por saltos de página.
     """
     if not pacientes:
         raise ValueError("No se encontraron pacientes afiliados para generar anexos.")
+
+    # Asegurar orden agrupado por RNOS y fecha
+    pacientes = ordenar_pacientes_anexos(pacientes)
 
     plantilla = Path(plantilla_path) if plantilla_path else PLANTILLA_DOCX
     if not plantilla.exists():
@@ -607,6 +650,8 @@ def generar_anexos_pdf(pacientes, ruta_salida_pdf):
     """
     if not pacientes:
         raise ValueError("No se encontraron pacientes afiliados para generar anexos.")
+
+    pacientes = ordenar_pacientes_anexos(pacientes)
 
     try:
         from reportlab.lib.pagesizes import A4
