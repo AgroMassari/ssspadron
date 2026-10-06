@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anexos II RS 1610 - Fojas de Impresión Masiva</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background: #4b5563;
+            color: #000;
+        }
+
+        /* ── Barra de acciones flotante ── */
+        .barra-accion {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #111827;
+            color: white;
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            z-index: 1000;
+        }
+
+        .barra-titulo {
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-imprimir {
+            background: #16a34a;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 10px rgba(22,163,74,0.4);
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .btn-imprimir:hover { background: #15803d; }
+        .btn-imprimir:active { transform: scale(0.98); }
+
+        .btn-volver {
+            background: #374151;
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .btn-volver:hover { background: #4b5563; }
+
+        .contenedor-hojas {
+            margin-top: 80px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+            padding-bottom: 50px;
+        }
+
+        /* ── Cada hoja de Anexo II ── */
+        .hoja-anexo {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 12mm 15mm;
+            background: white;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+            page-break-after: always;
+            break-after: page;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .titulo-doc {
+            text-align: center;
+            font-size: 17px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            margin-bottom: 2px;
+        }
+
+        .subtitulo-doc {
+            text-align: center;
+            font-size: 13px;
+            font-weight: bold;
+            text-decoration: underline;
+            margin-bottom: 12px;
+        }
+
+        /* ── Tabla oficial ── */
+        .tabla-anexo {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+
+        .tabla-anexo td, .tabla-anexo th {
+            border: 1px solid #000;
+            padding: 4px 6px;
+            vertical-align: middle;
+        }
+
+        .banner {
+            background: #e5e7eb;
+            text-align: center;
+            font-weight: bold;
+            font-size: 11.5px;
+            padding: 5px !important;
+            letter-spacing: 0.5px;
+        }
+
+        .th-gris {
+            background: #f3f4f6;
+            font-weight: bold;
+            font-size: 10.5px;
+        }
+
+        .texto-valor {
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .casilla {
+            display: inline-block;
+            border: 1px solid #000;
+            width: 14px;
+            height: 14px;
+            line-height: 13px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 11px;
+            margin-left: 2px;
+            vertical-align: middle;
+        }
+
+        .espacio-firma {
+            height: 65px;
+            vertical-align: bottom !important;
+            padding-bottom: 6px !important;
+        }
+
+        /* ── Estilos de impresión nativa (Ctrl + P) ── */
+        @media print {
+            body {
+                background: white;
+            }
+
+            .barra-accion {
+                display: none !important;
+            }
+
+            .contenedor-hojas {
+                margin: 0;
+                padding: 0;
+                gap: 0;
+            }
+
+            .hoja-anexo {
+                box-shadow: none;
+                width: 100%;
+                min-height: 100vh;
+                margin: 0;
+                padding: 10mm 12mm;
+                page-break-after: always;
+                break-after: page;
+            }
+
+            @page {
+                size: A4 portrait;
+                margin: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="barra-accion">
+        <div class="barra-titulo">
+            <span>📋</span>
+            <span>Anexos II Masivos ({{ total_pacientes }} afiliados)</span>
+        </div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <button class="btn-imprimir" onclick="window.print()">
+                🖨️ IMPRIMIR TODOS ({{ total_pacientes }} Fojas)
+            </button>
+            <a href="javascript:history.back()" class="btn-volver">⬅️ Volver</a>
+        </div>
+    </div>
+
+    <div class="contenedor-hojas">
+
+        {% for p in pacientes %}
+        <div class="hoja-anexo">
+
+            <div class="titulo-doc">ANEXO II</div>
+            <div class="subtitulo-doc">CERTIFICACIÓN DE PRÁCTICA MÉDICA Y ADMINISTRATIVA</div>
+
+            <table class="tabla-anexo">
+                <!-- R0: Certificación / Fecha -->
+                <tr>
+                    <td colspan="3" style="font-weight: bold; font-size: 11.5px;">
+                        CERTIFICACIÓN DE PRÁCTICA MÉDICA Y ADMINISTRATIVA
+                    </td>
+                    <td style="width: 130px; text-align: center; font-weight: bold;" class="th-gris">
+                        Fecha
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="3" style="color: #4b5563; font-size: 10px;">
+                        Comprobante de atención médica y administrativa para facturación HPGD
+                    </td>
+                    <td style="text-align: center; font-weight: bold; font-size: 13px;">
+                        {{ p.fecha }}
+                    </td>
+                </tr>
+
+                <!-- R2: Hospital y REFES -->
+                <tr>
+                    <td colspan="3">
+                        Denominación del HPGD: <strong>HOSPITAL REGIONAL LOUIS PASTEUR</strong>
+                    </td>
+                    <td style="text-align: center; font-size: 11px;">
+                        Código REFES: <strong>10140422131251</strong>
+                    </td>
+                </tr>
+
+                <!-- R3: Banner Beneficiario -->
+                <tr>
+                    <td colspan="4" class="banner">
+                        DATOS DEL BENEFICIARIO
+                    </td>
+                </tr>
+
+                <!-- R4 & R5: Apellidos, Nombres y DNI -->
+                <tr class="th-gris">
+                    <td colspan="3">Apellidos y Nombres</td>
+                    <td style="text-align: center;">N° de Documento</td>
+                </tr>
+                <tr>
+                    <td colspan="3" class="texto-valor" style="font-size: 13px;">
+                        {{ p.nombre }}
+                    </td>
+                    <td style="text-align: center;" class="texto-valor">
+                        {{ p.dni }}
+                    </td>
+                </tr>
+
+                <!-- R6 & R7: Tipo Beneficiario, Sexo, Edad -->
+                <tr class="th-gris">
+                    <td style="width: 32%;">Tipo de Beneficiario</td>
+                    <td style="width: 28%;">Parentesco</td>
+                    <td style="width: 22%; text-align: center;">Sexo</td>
+                    <td style="width: 18%; text-align: center;">Edad</td>
+                </tr>
+                <tr>
+                    <td>
+                        Titular <span class="casilla">X</span> &nbsp;
+                        Fam <span class="casilla"></span> &nbsp;
+                        Adh <span class="casilla"></span>
+                    </td>
+                    <td>
+                        Cónyuge <span class="casilla"></span> &nbsp;
+                        Hijo <span class="casilla"></span> &nbsp;
+                        Otro <span class="casilla"></span>
+                    </td>
+                    <td style="text-align: center;">
+                        F <span class="casilla">{% if p.sexo and p.sexo.startswith('F') %}X{% endif %}</span> &nbsp;
+                        M <span class="casilla">{% if p.sexo and p.sexo.startswith('M') %}X{% endif %}</span>
+                    </td>
+                    <td style="text-align: center; font-weight: bold; font-size: 12px;">
+                        {{ p.edad }}
+                    </td>
+                </tr>
+
+                <!-- R8: Banner Atención -->
+                <tr>
+                    <td colspan="4" class="banner">
+                        DATOS DE LA ATENCIÓN
+                    </td>
+                </tr>
+
+                <!-- R9 & R10: Tipo de Atención y Fecha -->
+                <tr class="th-gris">
+                    <td colspan="3">Tipo de atención</td>
+                    <td style="text-align: center;">Fecha de prestación</td>
+                </tr>
+                <tr>
+                    <td colspan="3" style="font-size: 10px; color: #4b5563;">
+                        Ambulatoria / Consulta médica programada
+                    </td>
+                    <td style="text-align: center; font-weight: bold; font-size: 12px;">
+                        {{ p.fecha }}
+                    </td>
+                </tr>
+
+                <!-- R11: Consulta y Especialidad -->
+                <tr>
+                    <td>
+                        Consulta <span class="casilla">X</span>
+                    </td>
+                    <td colspan="3">
+                        Especialidad: <strong>{{ p.servicio }}</strong>
+                    </td>
+                </tr>
+
+                <!-- R12: Diagnóstico -->
+                <tr>
+                    <td colspan="4" style="font-size: 12px;">
+                        Diagnóstico: <strong>{{ p.diagnostico }}</strong>
+                    </td>
+                </tr>
+
+                <!-- R13 & R14 & R15: Práctica y Código -->
+                <tr class="th-gris">
+                    <td colspan="2">Práctica</td>
+                    <td colspan="2" style="text-align: center;">Código</td>
+                </tr>
+                <tr>
+                    <td colspan="2" style="height: 22px;"></td>
+                    <td colspan="2"></td>
+                </tr>
+                <tr>
+                    <td colspan="2" style="height: 22px;"></td>
+                    <td colspan="2"></td>
+                </tr>
+
+                <!-- R16 & R17: Internación y CIE 10 -->
+                <tr>
+                    <td>
+                        Internación <span class="casilla"></span>
+                    </td>
+                    <td>
+                        Diagnóstico de Egreso CIE 10
+                    </td>
+                    <td colspan="2" style="font-size: 10px;">
+                        Código Principal: ________ Otros: ________
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="4" style="text-align: center; font-style: italic; font-size: 9.5px; color: #4b5563;">
+                        CIE 10 Clasificación Internacional de Enfermedades
+                    </td>
+                </tr>
+
+                <!-- R18: Firma Médico -->
+                <tr>
+                    <td colspan="4" class="espacio-firma">
+                        <div style="border-top: 1px dotted #999; display: inline-block; padding-top: 4px; width: 280px; font-size: 10px; font-weight: bold;">
+                            Firma del Médico y sello con N° de Matrícula
+                        </div>
+                    </td>
+                </tr>
+
+                <!-- R19: Agente Salud, RNAS, Firma Director -->
+                <tr class="th-gris">
+                    <td colspan="2" style="text-align: center;">NOMBRE DEL AGENTE DE SEGURO DE SALUD</td>
+                    <td style="text-align: center;">RNAS</td>
+                    <td style="text-align: center;">FIRMA DEL DIRECTOR O SUBDIRECTOR</td>
+                </tr>
+                <tr>
+                    <td colspan="2" style="font-weight: bold; font-size: 12px; height: 55px; vertical-align: top; padding-top: 8px;">
+                        {{ p.obra_social }}
+                    </td>
+                    <td style="text-align: center; font-weight: bold; font-size: 13px; vertical-align: top; padding-top: 8px;">
+                        {{ p.rnos }}
+                    </td>
+                    <td class="espacio-firma" style="text-align: center;">
+                        <div style="border-top: 1px dotted #999; display: inline-block; padding-top: 4px; width: 100%; font-size: 9.5px;">
+                            Director / Subdirector Hospital
+                        </div>
+                    </td>
+                </tr>
+
+            </table>
+
+        </div>
+        {% endfor %}
+
+    </div>
+
+</body>
+</html>

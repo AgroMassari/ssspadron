@@ -591,28 +591,38 @@
         <div class="card">
 
             <div class="card-header">
-                <div class="card-icon icon-blue">📄</div>
+                <div class="card-icon icon-blue">📋</div>
                 <div>
-                    <div class="card-title">Generador de Anexos II (Word .docx)</div>
-                    <div class="card-desc">Subí un Excel con pacientes y Obra Social verificada y generá las fojas oficiales de Anexo II en Word listas para presentar</div>
+                    <div class="card-title">Generador de Anexos II Masivos (RS 1610)</div>
+                    <div class="card-desc">Subí un Excel con pacientes y Obra Social verificada para generar todos los anexos listos para imprimir</div>
                 </div>
             </div>
 
-            <form action="/generar_anexos" method="POST" enctype="multipart/form-data">
+            <form action="/generar_anexos_pdf" method="POST" enctype="multipart/form-data">
 
                 <label for="archivo-anexo-dir" id="zona-anexo" class="zona-drop azul">
                     <div class="zona-icono">📑</div>
                     <div class="zona-texto">
                         <strong style="color: var(--text);">Seleccioná el archivo Excel (.xlsx)</strong><br>
-                        Generará 1 página oficial con membrete por cada afiliado encontrado
+                        Compila automáticamente 1 foja membretada por cada afiliado
                     </div>
                 </label>
                 <input type="file" id="archivo-anexo-dir" name="archivo" accept=".xlsx" required onchange="document.getElementById('nombre-anexo-dir').textContent = this.files[0] ? this.files[0].name : 'Ningún archivo seleccionado'">
                 <p class="archivo-nombre" id="nombre-anexo-dir">Ningún archivo seleccionado</p>
 
-                <button type="submit" class="btn btn-blue" id="btn-gen-anexos">
-                    📄 GENERAR ANEXOS II EN WORD
-                </button>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button type="submit" class="btn btn-blue" id="btn-gen-pdf">
+                        🖨️ DESCARGAR PDF MASIVO (LISTO PARA IMPRIMIR)
+                    </button>
+
+                    <button type="submit" class="btn" style="background: #2563eb; color: white;" formaction="/imprimir_anexos_directo" formtarget="_blank">
+                        🖨️ VISTA PREVIA / MANDAR A IMPRIMIR (CTRL + P)
+                    </button>
+
+                    <button type="submit" class="btn btn-purple" formaction="/generar_anexos">
+                        📄 DESCARGAR EN WORD EDITABLE (.DOCX)
+                    </button>
+                </div>
 
             </form>
 

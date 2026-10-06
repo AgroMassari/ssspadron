@@ -29,3 +29,4 @@ chromadb
 PyMuPDF
 tiktoken
 openai
+reportlab==4.2.5

@@ -380,3 +380,194 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None):
             z_out.writestr(name, data)
 
     return len(pacientes)
+
+
+def generar_anexos_pdf(pacientes, ruta_salida_pdf):
+    """
+    Genera un archivo PDF único masivo con todas las fojas de Anexo II,
+    una página por paciente afiliado, listo para imprimir directamente.
+    """
+    if not pacientes:
+        raise ValueError("No se encontraron pacientes afiliados para generar anexos.")
+
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, PageBreak
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    except ImportError:
+        raise RuntimeError("ReportLab no está disponible. Ejecute: pip install reportlab")
+
+    Path(ruta_salida_pdf).parent.mkdir(exist_ok=True, parents=True)
+
+    # A4 = 595.27 x 841.89 pt. Márgenes de 20 pt a cada lado -> ancho útil = 555.27 pt
+    doc = SimpleDocTemplate(
+        str(ruta_salida_pdf),
+        pagesize=A4,
+        leftMargin=20,
+        rightMargin=20,
+        topMargin=20,
+        bottomMargin=20,
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'AnexoTitulo',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=12,
+        leading=14,
+        alignment=1,
+        spaceAfter=2,
+    )
+
+    subtitle_style = ParagraphStyle(
+        'AnexoSubtitulo',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=9,
+        leading=11,
+        alignment=1,
+        spaceAfter=6,
+    )
+
+    def P(texto, font='Helvetica', size=7.5, leading=9, align=0, bold=False):
+        fName = 'Helvetica-Bold' if bold else font
+        p_style = ParagraphStyle(
+            f'P_{fName}_{size}_{align}',
+            parent=styles['Normal'],
+            fontName=fName,
+            fontSize=size,
+            leading=leading,
+            alignment=align,
+        )
+        return Paragraph(str(texto or ''), p_style)
+
+    col_widths = [150, 155, 145, 105.27]
+    elements = []
+
+    for idx, pac in enumerate(pacientes):
+        nombre = pac.get("nombre", "")
+        dni = pac.get("dni", "")
+        fecha = pac.get("fecha", "")
+        servicio = pac.get("servicio", "CONSULTA")
+        diagnostico = pac.get("diagnostico", "")
+        obra_social = pac.get("obra_social", "")
+        rnos = pac.get("rnos", "")
+        sexo = str(pac.get("sexo", "")).strip().upper()
+        edad = str(pac.get("edad", "")).strip()
+
+        es_f = "X" if sexo.startswith("F") else ""
+        es_m = "X" if sexo.startswith("M") else ""
+
+        # Encabezado oficial
+        elements.append(Paragraph("ANEXO II", title_style))
+        elements.append(Paragraph("<u>CERTIFICACIÓN DE PRÁCTICA MÉDICA Y ADMINISTRATIVA</u>", subtitle_style))
+
+        tabla_data = [
+            # 0
+            [P("CERTIFICACIÓN DE PRÁCTICA MÉDICA Y ADMINISTRATIVA", bold=True, size=8), "", "", P("Fecha", bold=True, size=8, align=1)],
+            # 1
+            [P("Comprobante de atención médica y administrativa HPGD", size=7), "", "", P(fecha, bold=True, size=8.5, align=1)],
+            # 2
+            [P("Denominación del HPGD: <b>HOSPITAL REGIONAL LOUIS PASTEUR</b>", size=7.5), "", "", P("Código REFES: <b>10140422131251</b>", size=7.5, align=1)],
+            # 3: Banner Beneficiario
+            [P("DATOS DEL BENEFICIARIO", bold=True, size=8, align=1), "", "", ""],
+            # 4
+            [P("Apellidos y Nombres", bold=True, size=7), "", "", P("N° de Documento", bold=True, size=7, align=1)],
+            # 5
+            [P(nombre, bold=True, size=9), "", "", P(dni, bold=True, size=9, align=1)],
+            # 6
+            [P("Tipo de Beneficiario", bold=True, size=7), P("Parentesco", bold=True, size=7), P("Sexo", bold=True, size=7, align=1), P("Edad", bold=True, size=7, align=1)],
+            # 7
+            [
+                P("Titular <b>[X]</b>  Fam <b>[ ]</b>  Adh <b>[ ]</b>", size=6.8),
+                P("Cónyuge <b>[ ]</b>  Hijo <b>[ ]</b>  Otro <b>[ ]</b>", size=6.8),
+                P(f"F <b>[{es_f or ' '}]</b>   M <b>[{es_m or ' '}]</b>", size=7.5, align=1),
+                P(edad, bold=True, size=8, align=1)
+            ],
+            # 8: Banner Atención
+            [P("DATOS DE LA ATENCIÓN", bold=True, size=8, align=1), "", "", ""],
+            # 9
+            [P("Tipo de atención", bold=True, size=7), "", "", P("Fecha de prestación", bold=True, size=7, align=1)],
+            # 10
+            [P("Ambulatoria / Consulta médica programada", size=7), "", "", P(fecha, bold=True, size=8.5, align=1)],
+            # 11
+            [P("Consulta <b>[X]</b>", size=7.5), P(f"Especialidad: <b>{servicio}</b>", size=7.5), "", ""],
+            # 12
+            [P(f"Diagnóstico: <b>{diagnostico}</b>", size=7.5), "", "", ""],
+            # 13
+            [P("Práctica", bold=True, size=7), "", P("Código", bold=True, size=7), ""],
+            # 14
+            ["", "", "", ""],
+            # 15
+            ["", "", "", ""],
+            # 16
+            [P("Internación <b>[ ]</b>", size=7), P("Diagnóstico de Egreso CIE 10:", size=7), P("Cód. Principal:", size=7), P("Otros Códigos:", size=7)],
+            # 17
+            [P("CIE 10 Clasificación Internacional de Enfermedades", size=6.5, align=1), "", "", ""],
+            # 18: Firma Médico
+            [P("Firma del Médico y sello con N° de Matrícula", size=7), "", "", ""],
+            # 19: Obra Social Header
+            [P("NOMBRE DEL AGENTE DE SEGURO DE SALUD", bold=True, size=7, align=1), "", P("RNAS", bold=True, size=7, align=1), P("FIRMA DEL DIRECTOR O SUBDIRECTOR", bold=True, size=6.5, align=1)],
+            # 20: Obra Social Values
+            [P(obra_social, bold=True, size=8.5), "", P(rnos, bold=True, size=9, align=1), ""]
+        ]
+
+        t_style = [
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+
+            ('SPAN', (0, 0), (2, 0)),
+            ('SPAN', (0, 1), (2, 1)),
+            ('SPAN', (0, 2), (2, 2)),
+            ('SPAN', (0, 3), (3, 3)),
+            ('SPAN', (0, 4), (2, 4)),
+            ('SPAN', (0, 5), (2, 5)),
+            ('SPAN', (0, 8), (3, 8)),
+            ('SPAN', (0, 9), (2, 9)),
+            ('SPAN', (0, 10), (2, 10)),
+            ('SPAN', (1, 11), (3, 11)),
+            ('SPAN', (0, 12), (3, 12)),
+            ('SPAN', (0, 13), (1, 13)),
+            ('SPAN', (2, 13), (3, 13)),
+            ('SPAN', (0, 14), (1, 14)),
+            ('SPAN', (2, 14), (3, 14)),
+            ('SPAN', (0, 15), (1, 15)),
+            ('SPAN', (2, 15), (3, 15)),
+            ('SPAN', (0, 17), (3, 17)),
+            ('SPAN', (0, 18), (3, 18)),
+            ('SPAN', (0, 19), (1, 19)),
+            ('SPAN', (0, 20), (1, 20)),
+
+            ('BACKGROUND', (0, 3), (3, 3), colors.HexColor('#E5E7EB')),
+            ('BACKGROUND', (0, 8), (3, 8), colors.HexColor('#E5E7EB')),
+            ('BACKGROUND', (0, 0), (3, 0), colors.HexColor('#F3F4F6')),
+            ('BACKGROUND', (0, 4), (3, 4), colors.HexColor('#F3F4F6')),
+            ('BACKGROUND', (0, 6), (3, 6), colors.HexColor('#F3F4F6')),
+            ('BACKGROUND', (0, 9), (3, 9), colors.HexColor('#F3F4F6')),
+            ('BACKGROUND', (0, 13), (3, 13), colors.HexColor('#F3F4F6')),
+            ('BACKGROUND', (0, 19), (3, 19), colors.HexColor('#F3F4F6')),
+
+            ('BOTTOMPADDING', (0, 18), (3, 18), 35),
+            ('BOTTOMPADDING', (0, 20), (3, 20), 30),
+        ]
+
+        row_heights = [
+            18, 16, 18, 16, 14, 20, 14, 18, 16, 14, 18, 18, 20, 14, 14, 14, 16, 13, 50, 14, 45
+        ]
+
+        t = Table(tabla_data, colWidths=col_widths, rowHeights=row_heights, style=TableStyle(t_style))
+        elements.append(t)
+
+        if idx < len(pacientes) - 1:
+            elements.append(PageBreak())
+
+    doc.build(elements)
+    return len(pacientes)
+

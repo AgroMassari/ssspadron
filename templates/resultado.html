@@ -166,11 +166,33 @@
 
         </div>
 
+        {% if archivo_anexos_pdf %}
         <a
             class="boton"
+            style="background: #dc2626; margin-top: 10px;"
+            href="/descargar/{{ archivo_anexos_pdf }}"
+        >
+            🖨️ DESCARGAR ANEXOS II EN PDF (MASIVO LISTO PARA IMPRIMIR)
+        </a>
+        {% endif %}
+
+        {% if id_proceso %}
+        <a
+            class="boton"
+            style="background: #2563eb; margin-top: 10px;"
+            target="_blank"
+            href="/imprimir_anexos/{{ id_proceso }}"
+        >
+            🖨️ VISTA PREVIA / MANDAR A IMPRIMIR (CTRL + P)
+        </a>
+        {% endif %}
+
+        <a
+            class="boton"
+            style="background: #16a34a; margin-top: 10px;"
             href="/descargar/{{ archivo }}"
         >
-            ⬇️ DESCARGAR EXCEL PROCESADO
+            📊 DESCARGAR EXCEL PROCESADO
         </a>
 
         {% if archivo_anexos %}

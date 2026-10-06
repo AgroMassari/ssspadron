@@ -24,6 +24,7 @@ from flask import Flask, request, render_template, send_file, jsonify
 from generador_anexos import (
     extraer_pacientes_afiliados_excel,
     generar_anexos_docx,
+    generar_anexos_pdf,
 )
 
 # ── Módulos del bot de IA (opcionales: requieren pip install -r requirements.txt) ──
@@ -896,15 +897,20 @@ def procesar_archivo(
         wb.save(archivo_salida)
 
         # ----------------------------------------------------
-        # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX)
+        # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX Y PDF MASIVO)
         # ----------------------------------------------------
         archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
+        archivo_anexos_pdf = RESULT_DIR / f"anexos_{id_proceso}.pdf"
         cant_anexos = 0
         try:
             pacientes_afiliados = extraer_pacientes_afiliados_excel(archivo_salida)
             if pacientes_afiliados:
                 cant_anexos = generar_anexos_docx(pacientes_afiliados, archivo_anexos)
-                print(f"Se generaron exitosamente {cant_anexos} Anexos II en: {archivo_anexos.name}")
+                try:
+                    generar_anexos_pdf(pacientes_afiliados, archivo_anexos_pdf)
+                except Exception as e_pdf:
+                    print(f"Aviso generando PDF de anexos: {e_pdf}")
+                print(f"Se generaron exitosamente {cant_anexos} Anexos II (Word y PDF)")
         except Exception as e_anexos:
             print(f"Aviso al generar Anexos II automáticos: {e_anexos}")
 
@@ -916,6 +922,7 @@ def procesar_archivo(
         estado["porcentaje"] = 100
         estado["archivo"] = Path(archivo_salida).name
         estado["archivo_anexos"] = Path(archivo_anexos).name if cant_anexos > 0 else ""
+        estado["archivo_anexos_pdf"] = Path(archivo_anexos_pdf).name if (cant_anexos > 0 and archivo_anexos_pdf.exists()) else ""
         estado["anexos_generados"] = cant_anexos
         estado["segundos"] = round(time.time() - inicio, 1)
         estado["estimado_restante"] = 0
@@ -1148,6 +1155,67 @@ def descargar_anexos(id_proceso):
 
 
 # ============================================================
+# DESCARGAR ANEXOS II EN PDF (MASIVO LISTO PARA IMPRIMIR)
+# ============================================================
+
+@app.route("/descargar_anexos_pdf/<id_proceso>")
+def descargar_anexos_pdf(id_proceso):
+    archivo_pdf = RESULT_DIR / f"anexos_{id_proceso}.pdf"
+    if archivo_pdf.exists():
+        return send_file(
+            archivo_pdf,
+            as_attachment=True,
+            download_name=f"Anexos_II_Masivos_{id_proceso[:8]}.pdf"
+        )
+
+    estado = obtener_estado_proceso(id_proceso)
+    if estado and estado.get("archivo"):
+        archivo_salida = RESULT_DIR / estado["archivo"]
+        if archivo_salida.exists():
+            try:
+                pacientes = extraer_pacientes_afiliados_excel(archivo_salida)
+                if pacientes:
+                    generar_anexos_pdf(pacientes, archivo_pdf)
+                    return send_file(
+                        archivo_pdf,
+                        as_attachment=True,
+                        download_name=f"Anexos_II_Masivos_{id_proceso[:8]}.pdf"
+                    )
+            except Exception as e:
+                return f"Error generando PDF de anexos: {e}", 500
+
+    return "No se encontraron anexos para este proceso o no hay pacientes afiliados.", 404
+
+
+# ============================================================
+# VISTA PREVIA E IMPRESIÓN DIRECTA EN NAVEGADOR (CTRL + P)
+# ============================================================
+
+@app.route("/imprimir_anexos/<id_proceso>")
+def imprimir_anexos(id_proceso):
+    estado = obtener_estado_proceso(id_proceso)
+    if not estado or not estado.get("archivo"):
+        return "Proceso no encontrado o aún no terminado.", 404
+
+    archivo_salida = RESULT_DIR / estado["archivo"]
+    if not archivo_salida.exists():
+        return "Archivo procesado no encontrado.", 404
+
+    try:
+        pacientes = extraer_pacientes_afiliados_excel(archivo_salida)
+        if not pacientes:
+            return "No se encontraron pacientes afiliados para imprimir.", 404
+
+        return render_template(
+            "imprimir_anexos.html",
+            pacientes=pacientes,
+            total_pacientes=len(pacientes)
+        )
+    except Exception as e:
+        return f"Error cargando fojas para impresión: {e}", 500
+
+
+# ============================================================
 # GENERADOR DIRECTO DE ANEXOS II (DESDE EXCEL YA VERIFICADO)
 # ============================================================
 
@@ -1193,6 +1261,85 @@ def generar_anexos_directo():
         <p>{e}</p>
         <a href="/">Volver</a>
         """, 500
+
+
+# ============================================================
+# GENERADOR DIRECTO DE ANEXOS II EN PDF (MASIVO IMPRIMIBLE)
+# ============================================================
+
+@app.route("/generar_anexos_pdf", methods=["POST"])
+def generar_anexos_pdf_directo():
+    archivo = request.files.get("archivo")
+    if not archivo or archivo.filename == "":
+        return """
+        <h2>No se seleccionó ningún archivo Excel.</h2>
+        <a href="/">Volver</a>
+        """, 400
+
+    if not archivo.filename.lower().endswith(".xlsx"):
+        return """
+        <h2>El archivo debe ser un Excel (.xlsx)</h2>
+        <a href="/">Volver</a>
+        """, 400
+
+    identificador = uuid.uuid4().hex
+    temp_excel = UPLOAD_DIR / f"anexo_upload_{identificador}.xlsx"
+    temp_pdf = RESULT_DIR / f"anexos_II_{identificador}.pdf"
+    archivo.save(temp_excel)
+
+    try:
+        pacientes = extraer_pacientes_afiliados_excel(temp_excel)
+        if not pacientes:
+            return """
+            <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>
+            <p>Asegurate de que el archivo contenga columnas con DNI, Paciente y Obra Social verificada.</p>
+            <a href="/">Volver al inicio</a>
+            """, 400
+
+        generar_anexos_pdf(pacientes, temp_pdf)
+        nombre_descarga = f"Anexos_II_Masivos_{Path(archivo.filename).stem}.pdf"
+        return send_file(
+            temp_pdf,
+            as_attachment=True,
+            download_name=nombre_descarga
+        )
+    except Exception as e:
+        return f"""
+        <h2>Error generando PDF de Anexos II</h2>
+        <p>{e}</p>
+        <a href="/">Volver</a>
+        """, 500
+
+
+# ============================================================
+# IMPRESIÓN DIRECTA DESDE EXCEL SUBIDO (VISTA WEB CTRL+P)
+# ============================================================
+
+@app.route("/imprimir_anexos_directo", methods=["POST"])
+def imprimir_anexos_directo():
+    archivo = request.files.get("archivo")
+    if not archivo or not archivo.filename.lower().endswith(".xlsx"):
+        return "Debe subir un archivo Excel (.xlsx)", 400
+
+    identificador = uuid.uuid4().hex
+    temp_excel = UPLOAD_DIR / f"anexo_print_{identificador}.xlsx"
+    archivo.save(temp_excel)
+
+    try:
+        pacientes = extraer_pacientes_afiliados_excel(temp_excel)
+        if not pacientes:
+            return """
+            <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>
+            <a href="/">Volver al inicio</a>
+            """, 400
+
+        return render_template(
+            "imprimir_anexos.html",
+            pacientes=pacientes,
+            total_pacientes=len(pacientes)
+        )
+    except Exception as e:
+        return f"<h2>Error preparando fojas para impresión:</h2><p>{e}</p><a href='/'>Volver</a>", 500
 
 
 # ============================================================

@@ -293,14 +293,32 @@
             class="error oculto">
         </div>
 
-        <div id="contenedorDescargas" class="oculto" style="margin-top: 25px;">
+        <div id="contenedorDescargas" class="oculto" style="margin-top: 25px; display: flex; flex-direction: column; gap: 10px;">
+            <a
+                id="botonPdf"
+                class="boton oculto"
+                style="background: #dc2626; margin-top: 0;"
+                href="#">
+                🖨️ DESCARGAR ANEXOS II EN PDF (MASIVO LISTO PARA IMPRIMIR)
+            </a>
+
+            <a
+                id="botonImprimirDirecto"
+                class="boton oculto"
+                style="background: #2563eb; margin-top: 0;"
+                target="_blank"
+                href="#">
+                🖨️ VISTA PREVIA / MANDAR A IMPRIMIR (CTRL + P)
+            </a>
+
             <a
                 id="botonDescarga"
                 class="boton"
-                style="background: #16a34a; margin-top: 0; margin-bottom: 12px;"
+                style="background: #16a34a; margin-top: 0;"
                 href="#">
                 📊 DESCARGAR EXCEL PROCESADO
             </a>
+
             <a
                 id="botonAnexos"
                 class="boton oculto"
@@ -308,7 +326,8 @@
                 href="#">
                 📄 DESCARGAR ANEXOS II (WORD .DOCX)
             </a>
-            <div id="infoAnexos" style="text-align: center; font-size: 14px; color: #4b5563; margin-top: 8px;"></div>
+
+            <div id="infoAnexos" style="text-align: center; font-size: 14px; color: #4b5563; margin-top: 4px;"></div>
         </div>
 
     </div>
@@ -456,20 +475,35 @@ function actualizarProgreso() {
                 const contenedor = document.getElementById("contenedorDescargas");
                 const botonExcel = document.getElementById("botonDescarga");
                 const botonAnexos = document.getElementById("botonAnexos");
+                const botonPdf = document.getElementById("botonPdf");
+                const botonImprimir = document.getElementById("botonImprimirDirecto");
                 const infoAnexos = document.getElementById("infoAnexos");
 
                 botonExcel.href = "/descargar/" + data.archivo;
                 contenedor.classList.remove("oculto");
 
+                if (data.archivo_anexos_pdf) {
+                    botonPdf.href = "/descargar/" + data.archivo_anexos_pdf;
+                    botonPdf.classList.remove("oculto");
+                } else if ((data.afiliados || 0) > 0) {
+                    botonPdf.href = "/descargar_anexos_pdf/" + idProceso;
+                    botonPdf.classList.remove("oculto");
+                }
+
+                if ((data.afiliados || 0) > 0) {
+                    botonImprimir.href = "/imprimir_anexos/" + idProceso;
+                    botonImprimir.classList.remove("oculto");
+                }
+
                 if (data.archivo_anexos) {
                     botonAnexos.href = "/descargar/" + data.archivo_anexos;
                     botonAnexos.classList.remove("oculto");
-                    infoAnexos.textContent = "✅ Se generaron " + (data.anexos_generados || 0) + " fojas de Anexo II para afiliados.";
                 } else if ((data.afiliados || 0) > 0) {
                     botonAnexos.href = "/descargar_anexos/" + idProceso;
                     botonAnexos.classList.remove("oculto");
                 }
 
+                infoAnexos.textContent = "✅ Se generaron " + (data.anexos_generados || 0) + " fojas de Anexo II para afiliados.";
                 return;
             }
 
