@@ -247,10 +247,10 @@
                 <!-- R2: Hospital y REFES -->
                 <tr>
                     <td colspan="3">
-                        Denominación del HPGD: <strong>HOSPITAL REGIONAL LOUIS PASTEUR</strong>
+                        Denominación del HPGD: <strong>{{ hospital_nombre or 'NUEVO HOSPITAL SAN ROQUE' }}</strong>
                     </td>
                     <td style="text-align: center; font-size: 11px;">
-                        Código REFES: <strong>10140422131251</strong>
+                        Código REFES: <strong>{{ hospital_refes or '10140142131256' }}</strong>
                     </td>
                 </tr>
 

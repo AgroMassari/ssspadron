@@ -19,7 +19,7 @@ import json
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import openpyxl
-from flask import Flask, request, render_template, send_file, jsonify
+from flask import Flask, request, render_template, send_file, jsonify, redirect
 
 from generador_anexos import (
     extraer_pacientes_afiliados_excel,
@@ -29,6 +29,9 @@ from generador_anexos import (
     extraer_rnos_y_obrasocial,
     formatear_fecha,
     ordenar_pacientes_anexos,
+    CATALOGO_HOSPITALES,
+    HOSPITAL_DEFECTO,
+    resolver_hospital,
 )
 
 # ── Módulos del bot de IA (opcionales: requieren pip install -r requirements.txt) ──
@@ -615,7 +618,9 @@ def consultar_dni(sss, dni):
 def procesar_archivo(
     id_proceso,
     archivo_entrada,
-    archivo_salida
+    archivo_salida,
+    hospital_nombre=None,
+    hospital_refes=None
 ):
     estado = obtener_estado_proceso(id_proceso) or {
         "estado": "iniciando",
@@ -930,8 +935,15 @@ def procesar_archivo(
         try:
             pacientes_afiliados = extraer_pacientes_afiliados_excel(archivo_salida)
             if pacientes_afiliados:
-                cant_anexos = generar_anexos_docx(pacientes_afiliados, archivo_anexos)
-                print(f"Se generaron exitosamente {cant_anexos} Anexos II en Word (.docx)")
+                h_nom = hospital_nombre or estado.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
+                h_ref = hospital_refes or estado.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
+                cant_anexos = generar_anexos_docx(
+                    pacientes_afiliados,
+                    archivo_anexos,
+                    hospital_nombre=h_nom,
+                    hospital_refes=h_ref
+                )
+                print(f"Se generaron exitosamente {cant_anexos} Anexos II en Word (.docx) para {h_nom}")
         except Exception as e_anexos:
             print(f"Aviso al generar Anexos II automáticos en Word: {e_anexos}")
 
@@ -1045,6 +1057,15 @@ def procesar():
     )
 
     # --------------------------------------------------------
+    # RESOLVER HOSPITAL SELECCIONADO
+    # --------------------------------------------------------
+
+    hosp_id = request.form.get("hospital", "san_roque")
+    hosp_custom_nom = request.form.get("hospital_nombre_custom", "").strip()
+    hosp_custom_ref = request.form.get("hospital_refes_custom", "").strip()
+    hosp_info = resolver_hospital(hosp_id, hosp_custom_nom, hosp_custom_ref)
+
+    # --------------------------------------------------------
     # CREAR ESTADO PERSISTENTE
     # --------------------------------------------------------
 
@@ -1063,7 +1084,10 @@ def procesar():
         "segundos": 0,
         "estimado_restante": 0,
         "archivo": "",
-        "error": ""
+        "error": "",
+        "hospital_id": hosp_info.get("id", "san_roque"),
+        "hospital_nombre": hosp_info["nombre"],
+        "hospital_refes": hosp_info["refes"],
     }
     guardar_estado_proceso(identificador, nuevo_estado)
 
@@ -1076,7 +1100,9 @@ def procesar():
         args=(
             identificador,
             archivo_entrada,
-            archivo_salida
+            archivo_salida,
+            hosp_info["nombre"],
+            hosp_info["refes"]
         ),
         daemon=True
     )
@@ -1163,7 +1189,14 @@ def descargar_anexos(id_proceso):
             try:
                 pacientes = extraer_pacientes_afiliados_excel(archivo_salida)
                 if pacientes:
-                    generar_anexos_docx(pacientes, archivo_anexos)
+                    h_nombre = estado.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
+                    h_refes = estado.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
+                    generar_anexos_docx(
+                        pacientes,
+                        archivo_anexos,
+                        hospital_nombre=h_nombre,
+                        hospital_refes=h_refes
+                    )
                     return send_file(
                         archivo_anexos,
                         as_attachment=True,
@@ -1204,10 +1237,15 @@ def imprimir_anexos(id_proceso):
         if not pacientes:
             return "No se encontraron pacientes afiliados para imprimir.", 404
 
+        h_nombre = estado.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
+        h_refes = estado.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
+
         return render_template(
             "imprimir_anexos.html",
             pacientes=pacientes,
-            total_pacientes=len(pacientes)
+            total_pacientes=len(pacientes),
+            hospital_nombre=h_nombre,
+            hospital_refes=h_refes
         )
     except Exception as e:
         return f"Error cargando fojas para impresión: {e}", 500
@@ -1217,8 +1255,11 @@ def imprimir_anexos(id_proceso):
 # GENERADOR DIRECTO DE ANEXOS II (DESDE EXCEL YA VERIFICADO)
 # ============================================================
 
-@app.route("/generar_anexos", methods=["POST"])
+@app.route("/generar_anexos", methods=["GET", "POST"])
 def generar_anexos_directo():
+    if request.method == "GET":
+        return redirect("/")
+
     archivo = request.files.get("archivo")
     if not archivo or archivo.filename == "":
         return """
@@ -1239,6 +1280,11 @@ def generar_anexos_directo():
 
     try:
         esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
+        hosp_id = request.form.get("hospital", "san_roque")
+        hosp_custom_nom = request.form.get("hospital_nombre_custom", "").strip()
+        hosp_custom_ref = request.form.get("hospital_refes_custom", "").strip()
+        hosp_info = resolver_hospital(hosp_id, hosp_custom_nom, hosp_custom_ref)
+
         pacientes = extraer_pacientes_afiliados_excel(temp_excel, especialidad_defecto=esp_req)
         if not pacientes:
             return """
@@ -1247,7 +1293,12 @@ def generar_anexos_directo():
             <a href="/">Volver al inicio</a>
             """, 400
 
-        generar_anexos_docx(pacientes, temp_docx)
+        generar_anexos_docx(
+            pacientes,
+            temp_docx,
+            hospital_nombre=hosp_info["nombre"],
+            hospital_refes=hosp_info["refes"]
+        )
         nombre_descarga = f"Anexos_II_{Path(archivo.filename).stem}.docx"
         return send_file(
             temp_docx,
@@ -1255,11 +1306,21 @@ def generar_anexos_directo():
             download_name=nombre_descarga
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return f"""
-        <h2>Error generando Anexos II</h2>
-        <p>{e}</p>
-        <a href="/">Volver</a>
-        """, 500
+        <!DOCTYPE html>
+        <html>
+        <head><title>Error</title><meta charset="utf-8"></head>
+        <body style="font-family: sans-serif; padding: 40px; background: #0f172a; color: #f8fafc;">
+            <h2 style="color: #ef4444;">❌ Error al generar Anexos II</h2>
+            <div style="background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin: 20px 0; font-family: monospace; font-size: 14px;">
+                {e}
+            </div>
+            <a href="/" style="display: inline-block; padding: 10px 20px; background: #6366f1; color: white; border-radius: 6px; text-decoration: none; font-weight: bold;">⬅ Volver al inicio</a>
+        </body>
+        </html>
+        """, 200
 
 
 # ============================================================
@@ -1288,6 +1349,11 @@ def imprimir_anexos_directo():
 
     try:
         esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
+        hosp_id = request.form.get("hospital", "san_roque")
+        hosp_custom_nom = request.form.get("hospital_nombre_custom", "").strip()
+        hosp_custom_ref = request.form.get("hospital_refes_custom", "").strip()
+        hosp_info = resolver_hospital(hosp_id, hosp_custom_nom, hosp_custom_ref)
+
         pacientes = extraer_pacientes_afiliados_excel(temp_excel, especialidad_defecto=esp_req)
         if not pacientes:
             return """
@@ -1298,7 +1364,9 @@ def imprimir_anexos_directo():
         return render_template(
             "imprimir_anexos.html",
             pacientes=pacientes,
-            total_pacientes=len(pacientes)
+            total_pacientes=len(pacientes),
+            hospital_nombre=hosp_info["nombre"],
+            hospital_refes=hosp_info["refes"]
         )
     except Exception as e:
         return f"<h2>Error preparando fojas para impresión:</h2><p>{e}</p><a href='/'>Volver</a>", 500

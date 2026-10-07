@@ -303,6 +303,15 @@
             </a>
 
             <a
+                id="botonImprimir"
+                class="boton"
+                target="_blank"
+                style="background: #0891b2; margin-top: 0; font-size: 15px; font-weight: 600; padding: 13px 20px;"
+                href="/imprimir_anexos/{{ id_proceso }}">
+                🖨️ VER E IMPRIMIR ANEXOS II (VISTA WEB CTRL+P)
+            </a>
+
+            <a
                 id="botonDescarga"
                 class="boton"
                 style="background: #16a34a; margin-top: 0; font-size: 15px; font-weight: 600; padding: 13px 20px;"
@@ -478,7 +487,8 @@ function actualizarProgreso() {
                 }
                 contenedor.classList.remove("oculto");
 
-                infoAnexos.textContent = "✅ Se completaron y ordenaron " + (data.anexos_generados || data.afiliados || 0) + " fojas oficiales de Anexo II en Word (.docx).";
+                const hospNom = data.hospital_nombre ? ` (${data.hospital_nombre})` : "";
+                infoAnexos.textContent = "✅ Se completaron y ordenaron " + (data.anexos_generados || data.afiliados || 0) + " fojas oficiales de Anexo II en Word (.docx)" + hospNom + ".";
                 return;
             }
 

@@ -536,6 +536,28 @@
                 <input type="file" id="archivo-sss" name="archivo" accept=".xlsx" required>
                 <p class="archivo-nombre" id="nombre-sss">Ningún archivo seleccionado</p>
 
+                <!-- Selector de Hospital para Anexos II -->
+                <div class="grupo-hospital" style="margin-bottom: 18px; background: var(--surface2); padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                        <label style="font-size: 0.88rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px;">
+                            🏥 Hospital emisor de los Anexos II:
+                        </label>
+                        <span style="font-size: 0.72rem; background: rgba(108, 99, 255, 0.18); color: #a5b4fc; padding: 2px 8px; border-radius: 6px; font-weight: 600; border: 1px solid rgba(108, 99, 255, 0.3);">
+                            HPGD / REFES
+                        </span>
+                    </div>
+                    <select name="hospital" class="selector-hospital" style="width: 100%; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-weight: 600; font-size: 0.92rem; outline: none; cursor: pointer;">
+                        <option value="san_roque" selected>NUEVO HOSPITAL SAN ROQUE (REFES: 10140142131256)</option>
+                        <option value="pasteur">HOSPITAL REGIONAL LOUIS PASTEUR (REFES: 10140422131251)</option>
+                        <option value="custom">✏️ Otro hospital / Personalizado...</option>
+                    </select>
+
+                    <div class="custom-hospital-campos" style="display: none; margin-top: 10px; gap: 8px; flex-direction: column;">
+                        <input type="text" name="hospital_nombre_custom" placeholder="Denominación del HPGD (ej. HOSPITAL...)" style="width: 100%; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.88rem; outline: none;">
+                        <input type="text" name="hospital_refes_custom" placeholder="Código REFES (ej. 10140142131256)" style="width: 100%; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.88rem; outline: none;">
+                    </div>
+                </div>
+
                 <button type="submit" class="btn btn-purple" id="btn-sss">
                     🔎 INICIAR VERIFICACIÓN SSSALUD
                 </button>
@@ -609,6 +631,28 @@
                 </label>
                 <input type="file" id="archivo-anexo-dir" name="archivo" accept=".xlsx" required onchange="document.getElementById('nombre-anexo-dir').textContent = this.files[0] ? this.files[0].name : 'Ningún archivo seleccionado'">
                 <p class="archivo-nombre" id="nombre-anexo-dir">Ningún archivo seleccionado</p>
+
+                <!-- Selector de Hospital para Anexos II -->
+                <div class="grupo-hospital" style="margin-bottom: 14px; background: var(--surface2); padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                        <label style="font-size: 0.88rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px;">
+                            🏥 Hospital emisor de los Anexos II:
+                        </label>
+                        <span style="font-size: 0.72rem; background: rgba(59, 130, 246, 0.18); color: #93c5fd; padding: 2px 8px; border-radius: 6px; font-weight: 600; border: 1px solid rgba(59, 130, 246, 0.3);">
+                            HPGD / REFES
+                        </span>
+                    </div>
+                    <select name="hospital" class="selector-hospital" style="width: 100%; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-weight: 600; font-size: 0.92rem; outline: none; cursor: pointer;">
+                        <option value="san_roque" selected>NUEVO HOSPITAL SAN ROQUE (REFES: 10140142131256)</option>
+                        <option value="pasteur">HOSPITAL REGIONAL LOUIS PASTEUR (REFES: 10140422131251)</option>
+                        <option value="custom">✏️ Otro hospital / Personalizado...</option>
+                    </select>
+
+                    <div class="custom-hospital-campos" style="display: none; margin-top: 10px; gap: 8px; flex-direction: column;">
+                        <input type="text" name="hospital_nombre_custom" placeholder="Denominación del HPGD (ej. HOSPITAL...)" style="width: 100%; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.88rem; outline: none;">
+                        <input type="text" name="hospital_refes_custom" placeholder="Código REFES (ej. 10140142131256)" style="width: 100%; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.88rem; outline: none;">
+                    </div>
+                </div>
 
                 <div style="margin-bottom: 15px; background: var(--surface2); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);">
                     <label style="font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 6px;">🩺 Especialidad médica por defecto:</label>
@@ -1191,6 +1235,35 @@
         });
 
         btnChatEnviar.addEventListener('click', enviarPregunta);
+
+        // Sincronización y persistencia de Hospital para Anexos II
+        document.addEventListener('DOMContentLoaded', () => {
+            const selectores = document.querySelectorAll('.selector-hospital');
+            const guardado = localStorage.getItem('hospital_anexo_preferido') || 'san_roque';
+
+            function actualizarCamposCustom(sel) {
+                const parent = sel.closest('.grupo-hospital');
+                if (!parent) return;
+                const customDiv = parent.querySelector('.custom-hospital-campos');
+                if (customDiv) {
+                    customDiv.style.display = sel.value === 'custom' ? 'flex' : 'none';
+                }
+            }
+
+            selectores.forEach(sel => {
+                sel.value = guardado;
+                actualizarCamposCustom(sel);
+
+                sel.addEventListener('change', () => {
+                    const nuevoVal = sel.value;
+                    localStorage.setItem('hospital_anexo_preferido', nuevoVal);
+                    selectores.forEach(s => {
+                        s.value = nuevoVal;
+                        actualizarCamposCustom(s);
+                    });
+                });
+            });
+        });
 
     </script>
 

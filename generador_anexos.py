@@ -2,7 +2,7 @@ import re
 import zipfile
 import xml.sax.saxutils as saxutils
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import openpyxl
 
 PLANTILLA_DOCX = Path(__file__).resolve().parent / "plantilla_anexo_ii.docx"
@@ -12,6 +12,49 @@ def escapar_xml(texto):
     if texto is None:
         return ""
     return saxutils.escape(str(texto))
+
+
+# Catálogo de Hospitales HPGD configurados
+CATALOGO_HOSPITALES = {
+    "san_roque": {
+        "id": "san_roque",
+        "nombre": "NUEVO HOSPITAL SAN ROQUE",
+        "refes": "10140142131256",
+        "descripcion": "Nuevo Hospital San Roque (Córdoba)",
+    },
+    "pasteur": {
+        "id": "pasteur",
+        "nombre": "HOSPITAL REGIONAL LOUIS PASTEUR",
+        "refes": "10140422131251",
+        "descripcion": "Hospital Regional Louis Pasteur (Villa María)",
+    },
+}
+
+HOSPITAL_DEFECTO = CATALOGO_HOSPITALES["san_roque"]
+
+
+def resolver_hospital(hospital_id=None, custom_nombre=None, custom_refes=None):
+    """
+    Resuelve el nombre y código REFES del hospital a partir de un ID o valores personalizados.
+    Por defecto utiliza Nuevo Hospital San Roque.
+    """
+    if hospital_id == "custom" and custom_nombre:
+        return {
+            "id": "custom",
+            "nombre": str(custom_nombre).strip().upper(),
+            "refes": str(custom_refes or "").strip(),
+            "descripcion": str(custom_nombre).strip().upper(),
+        }
+    if hospital_id and hospital_id in CATALOGO_HOSPITALES:
+        return CATALOGO_HOSPITALES[hospital_id]
+    if custom_nombre:
+        return {
+            "id": "custom",
+            "nombre": str(custom_nombre).strip().upper(),
+            "refes": str(custom_refes or "").strip(),
+            "descripcion": str(custom_nombre).strip().upper(),
+        }
+    return HOSPITAL_DEFECTO
 
 
 # Mapeo oficial de las principales Obras Sociales de Argentina a su código RNOS / RNAS (6 dígitos)
@@ -306,7 +349,7 @@ def _formatear_celda_texto(cell_xml, texto, font_sz="16"):
     return f'<w:tc>{tcPr_xml}{p_xml}</w:tc>'
 
 
-def _renderizar_tabla_paciente(tabla_template, paciente):
+def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, hospital_refes=None):
     """
     Rellena una copia de la tabla Word del Anexo II con los datos de un paciente.
     Conserva los atributos de tabla (<w:tblPr> y <w:tblGrid>) intactos.
@@ -320,6 +363,24 @@ def _renderizar_tabla_paciente(tabla_template, paciente):
     filas = re.findall(r'<w:tr[\s\S]*?</w:tr>', tabla_template)
     if len(filas) < 22:
         return tabla_template
+
+    # 0. R2 y R3: Denominación HPGD y Código REFES
+    h_nom = hospital_nombre or paciente.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
+    h_ref = hospital_refes or paciente.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
+
+    if h_nom and len(filas) > 2:
+        filas[2] = re.sub(
+            r'<w:t>[^<]*(?:LOUIS PASTEUR|PASTEUR|SAN ROQUE|HOSPITAL)[^<]*</w:t>',
+            f'<w:t>{escapar_xml(h_nom)}</w:t>',
+            filas[2],
+            flags=re.IGNORECASE
+        )
+    if h_ref and len(filas) > 3:
+        filas[3] = re.sub(
+            r'<w:t>\d{10,16}</w:t>',
+            f'<w:t>{escapar_xml(h_ref)}</w:t>',
+            filas[3]
+        )
 
     # 1. R6: Datos Beneficiario (Apellidos y Nombres en c0, DNI en c1)
     r6_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[6])
@@ -685,7 +746,7 @@ def ordenar_pacientes_anexos(pacientes):
     return sorted(pacientes, key=clave_orden)
 
 
-def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None):
+def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospital_nombre=None, hospital_refes=None):
     """
     Genera un documento Word único (.docx) con todas las fojas de Anexo II,
     una página completa (encabezado oficial + tabla del paciente) por cada paciente afiliado,
@@ -700,6 +761,9 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None):
     plantilla = Path(plantilla_path) if plantilla_path else PLANTILLA_DOCX
     if not plantilla.exists():
         raise FileNotFoundError(f"No se encontró la plantilla de Anexo II en: {plantilla}")
+
+    h_nom = hospital_nombre or HOSPITAL_DEFECTO["nombre"]
+    h_ref = hospital_refes or HOSPITAL_DEFECTO["refes"]
 
     # Leer plantilla como ZIP
     with zipfile.ZipFile(plantilla, 'r') as z_in:
@@ -727,7 +791,12 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None):
     # Generar una foja por cada paciente
     paginas = []
     for pac in pacientes:
-        tabla_pac = _renderizar_tabla_paciente(tabla_template, pac)
+        tabla_pac = _renderizar_tabla_paciente(
+            tabla_template,
+            pac,
+            hospital_nombre=h_nom,
+            hospital_refes=h_ref
+        )
         paginas.append(f"{encabezado_pagina}{tabla_pac}")
 
     # Separar cada anexo con un salto de página
@@ -747,7 +816,7 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None):
     return len(pacientes)
 
 
-def generar_anexos_pdf(pacientes, ruta_salida_pdf):
+def generar_anexos_pdf(pacientes, ruta_salida_pdf, hospital_nombre=None, hospital_refes=None):
     """
     Genera un archivo PDF único masivo con todas las fojas de Anexo II,
     una página por paciente afiliado, listo para imprimir directamente.
@@ -756,6 +825,8 @@ def generar_anexos_pdf(pacientes, ruta_salida_pdf):
         raise ValueError("No se encontraron pacientes afiliados para generar anexos.")
 
     pacientes = ordenar_pacientes_anexos(pacientes)
+    h_nom = hospital_nombre or HOSPITAL_DEFECTO["nombre"]
+    h_ref = hospital_refes or HOSPITAL_DEFECTO["refes"]
 
     try:
         from reportlab.lib.pagesizes import A4
@@ -842,7 +913,7 @@ def generar_anexos_pdf(pacientes, ruta_salida_pdf):
             # 1
             [P("Comprobante de atención médica y administrativa HPGD", size=7), "", "", P(fecha, bold=True, size=8.5, align=1)],
             # 2
-            [P("Denominación del HPGD: <b>HOSPITAL REGIONAL LOUIS PASTEUR</b>", size=7.5), "", "", P("Código REFES: <b>10140422131251</b>", size=7.5, align=1)],
+            [P(f"Denominación del HPGD: <b>{escapar_xml(h_nom)}</b>", size=7.5), "", "", P(f"Código REFES: <b>{escapar_xml(h_ref)}</b>", size=7.5, align=1)],
             # 3: Banner Beneficiario
             [P("DATOS DEL BENEFICIARIO", bold=True, size=8, align=1), "", "", ""],
             # 4
