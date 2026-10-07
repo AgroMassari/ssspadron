@@ -296,10 +296,10 @@
         <div id="contenedorDescargas" class="oculto" style="margin-top: 25px; display: flex; flex-direction: column; gap: 12px;">
             <a
                 id="botonAnexos"
-                class="boton oculto"
+                class="boton"
                 style="background: #4f46e5; margin-top: 0; font-size: 15px; font-weight: 700; padding: 14px 20px;"
-                href="#">
-                📄 DESCARGAR ANEXOS II (WORD .DOCX)
+                href="/descargar_anexos/{{ id_proceso }}">
+                📄 DESCARGAR ANEXOS II (WORD .DOCX ORDENADOS)
             </a>
 
             <a
@@ -437,6 +437,16 @@ function actualizarProgreso() {
 
             else if (
                 data.estado ===
+                "generando_anexos"
+            ) {
+
+                textoEstado =
+                    "📑 Generando y ordenando Anexos II en Word...";
+
+            }
+
+            else if (
+                data.estado ===
                 "terminado"
             ) {
 
@@ -460,18 +470,15 @@ function actualizarProgreso() {
                 const botonAnexos = document.getElementById("botonAnexos");
                 const infoAnexos = document.getElementById("infoAnexos");
 
-                botonExcel.href = "/descargar/" + data.archivo;
-                contenedor.classList.remove("oculto");
-
+                botonExcel.href = "/descargar/" + (data.archivo || "");
                 if (data.archivo_anexos) {
                     botonAnexos.href = "/descargar/" + data.archivo_anexos;
-                    botonAnexos.classList.remove("oculto");
-                } else if ((data.afiliados || 0) > 0) {
+                } else {
                     botonAnexos.href = "/descargar_anexos/" + idProceso;
-                    botonAnexos.classList.remove("oculto");
                 }
+                contenedor.classList.remove("oculto");
 
-                infoAnexos.textContent = "✅ Se generaron " + (data.anexos_generados || 0) + " fojas oficiales de Anexo II en Word (.docx).";
+                infoAnexos.textContent = "✅ Se completaron y ordenaron " + (data.anexos_generados || data.afiliados || 0) + " fojas oficiales de Anexo II en Word (.docx).";
                 return;
             }
 

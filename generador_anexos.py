@@ -176,28 +176,68 @@ def extraer_rnos_y_obrasocial(res_dni):
     return rnos, obra_social
 
 
+MESES_ES = {
+    "ene": "01", "enero": "01",
+    "feb": "02", "febrero": "02",
+    "mar": "03", "marzo": "03",
+    "abr": "04", "abril": "04",
+    "may": "05", "mayo": "05",
+    "jun": "06", "junio": "06",
+    "jul": "07", "julio": "07",
+    "ago": "08", "agosto": "08",
+    "sep": "09", "septiembre": "09", "set": "09", "setiembre": "09",
+    "oct": "10", "octubre": "10",
+    "nov": "11", "noviembre": "11",
+    "dic": "12", "diciembre": "12"
+}
+
+
 def desglosar_fecha(valor):
     """
     Desglosa una fecha en tupla (dia, mes, anio) como strings ("17", "07", "2026").
-    Soporta datetime, date, y strings en formatos DD/MM/YYYY, YYYY-MM-DD, etc.
+    Soporta datetime, date, números seriales de Excel, meses en texto español, DD/MM/YYYY, etc.
     """
     if valor is None:
         return "", "", ""
     if isinstance(valor, (datetime, date)):
         return f"{valor.day:02d}", f"{valor.month:02d}", f"{valor.year:04d}"
+
     val_str = str(valor).strip()
     if not val_str:
         return "", "", ""
-    val_str = val_str.split()[0].split('T')[0].strip()
+
+    # Serial numérico de Excel (ej: 46220)
+    try:
+        val_float = float(val_str)
+        if 30000 <= val_float <= 65000:
+            dt = datetime(1899, 12, 30) + timedelta(days=int(val_float))
+            return f"{dt.day:02d}", f"{dt.month:02d}", f"{dt.year:04d}"
+    except (ValueError, OverflowError):
+        pass
+
+    clean_val = val_str.split()[0].split('T')[0].strip()
+    original = val_str.split('T')[0].strip()
 
     # 1. YYYY-MM-DD o YYYY/MM/DD
-    m_iso = re.match(r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$', val_str)
+    m_iso = re.match(r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$', clean_val)
     if m_iso:
         y, m, d = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
         return f"{d:02d}", f"{m:02d}", f"{y:04d}"
 
-    # 2. DD/MM/YYYY o DD-MM-YYYY (admite espacios y barras)
-    original = str(valor).strip().split('T')[0]
+    # 2. Con nombre de mes en español (ej. "17-jul-2026", "17 de julio de 2026", "6 ago 2026")
+    m_mes = re.match(r'^(\d{1,2})\s*(?:de|[-/.])?\s*([a-zA-ZáéíóúÁÉÍÓÚ]+)\s*(?:de|[-/.])?\s*(\d{2,4})', original)
+    if m_mes:
+        d = int(m_mes.group(1))
+        mes_txt = m_mes.group(2).lower()
+        mes_pref = mes_txt[:3]
+        if mes_pref in MESES_ES or mes_txt in MESES_ES:
+            m_num = MESES_ES.get(mes_txt) or MESES_ES.get(mes_pref)
+            y = int(m_mes.group(3))
+            if y < 100:
+                y = 2000 + y if y < 50 else 1900 + y
+            return f"{d:02d}", m_num, f"{y:04d}"
+
+    # 3. DD/MM/YYYY o DD-MM-YYYY (admite espacios y barras)
     m_lat = re.match(r'^(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{2,4})', original)
     if m_lat:
         d, m = int(m_lat.group(1)), int(m_lat.group(2))
@@ -207,7 +247,7 @@ def desglosar_fecha(valor):
             y = 2000 + y if y < 50 else 1900 + y
         return f"{d:02d}", f"{m:02d}", f"{y:04d}"
 
-    # 3. Dígitos separados por espacio (ej. "17 07 2026")
+    # 4. Dígitos separados por espacio (ej. "17 07 2026")
     partes = re.split(r'\s+', original)
     if len(partes) == 3 and all(p.isdigit() for p in partes):
         if len(partes[0]) == 4:
@@ -246,6 +286,21 @@ def _formatear_celda_fecha(cell_xml, texto):
         f'<w:p><w:pPr><w:jc w:val="center"/></w:pPr>'
         f'<w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/>'
         f'<w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>'
+        f'<w:t>{escapar_xml(str(texto or ""))}</w:t></w:r></w:p>'
+    )
+    return f'<w:tc>{tcPr_xml}{p_xml}</w:tc>'
+
+
+def _formatear_celda_texto(cell_xml, texto, font_sz="16"):
+    """
+    Formatea una celda con texto alineado a la izquierda, margen y fuente especificada.
+    """
+    tcPr_m = re.search(r'<w:tcPr>[\s\S]*?</w:tcPr>', cell_xml)
+    tcPr_xml = tcPr_m.group(0) if tcPr_m else ''
+    p_xml = (
+        f'<w:p><w:pPr><w:ind w:left="60"/><w:jc w:val="left"/></w:pPr>'
+        f'<w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/>'
+        f'<w:b/><w:sz w:val="{font_sz}"/><w:szCs w:val="{font_sz}"/></w:rPr>'
         f'<w:t>{escapar_xml(str(texto or ""))}</w:t></w:r></w:p>'
     )
     return f'<w:tc>{tcPr_xml}{p_xml}</w:tc>'
@@ -358,7 +413,7 @@ def _renderizar_tabla_paciente(tabla_template, paciente):
                      .replace(r11_cells[2], c11_mes, 1)
                      .replace(r11_cells[3], c11_anio, 1))
 
-    # 4. R12: Tipo de atención (Consulta c1 = X, Especialidad c3 = CARDIOLOGIA por defecto)
+    # 4. R12: Tipo de atención (Consulta c1 = X, Especialidad c3 = CARDIOLOGIA)
     r12_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[12])
     if len(r12_cells) >= 4:
         c1_cons = re.sub(
@@ -367,30 +422,16 @@ def _renderizar_tabla_paciente(tabla_template, paciente):
             r12_cells[1],
             count=1
         )
-        servicio = str(paciente.get("servicio", "")).strip()
-        if not servicio or servicio.upper() in ["CONSULTA", "CONSULTAS", "CONSULTA MEDICA", "AMBULATORIO", "AMBULATORIA", "GUARDIA", "CONSULTA EXTERNA"]:
-            servicio = "CARDIOLOGIA"
-
-        c3_serv = re.sub(
-            r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-            rf'\1<w:pPr><w:ind w:left="60"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>{escapar_xml(servicio)}</w:t></w:r>\3',
-            r12_cells[3],
-            count=1
-        )
+        # Especialidad médica siempre CARDIOLOGIA
+        c3_serv = _formatear_celda_texto(r12_cells[3], "CARDIOLOGIA", font_sz="16")
         filas[12] = filas[12].replace(r12_cells[1], c1_cons, 1).replace(r12_cells[3], c3_serv, 1)
 
     # 5. R13: Diagnóstico en c3
     r13_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[13])
     if len(r13_cells) >= 4:
-        diagnostico = paciente.get("diagnostico", "")
-        if diagnostico:
-            c3_diag = re.sub(
-                r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-                rf'\1<w:pPr><w:ind w:left="60"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="15"/></w:rPr><w:t>{escapar_xml(diagnostico)}</w:t></w:r>\3',
-                r13_cells[3],
-                count=1
-            )
-            filas[13] = filas[13].replace(r13_cells[3], c3_diag, 1)
+        diagnostico = str(paciente.get("diagnostico", "")).strip()
+        c3_diag = _formatear_celda_texto(r13_cells[3], diagnostico, font_sz="15")
+        filas[13] = filas[13].replace(r13_cells[3], c3_diag, 1)
 
     # 6. R21: Obra Social en c0, RNAS en c1
     r21_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[21])
@@ -420,6 +461,7 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
     """
     Lee un Excel (original o ya verificado) y extrae todos los registros
     con Obra Social válida para generar los Anexos II.
+    Garantiza captura de diagnóstico en todas las columnas y ordenamiento cronológico de menor a mayor.
     """
     wb = openpyxl.load_workbook(excel_path, data_only=True)
     ws = wb.active
@@ -430,8 +472,7 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
     col_dni = None
     col_paciente = None
     col_fecha = None
-    col_prestacion = None
-    col_diagnostico = None
+    cols_diagnostico = []
     col_sexo = None
     col_edad = None
     col_rnos = None
@@ -455,12 +496,9 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
             for c, t in row_vals.items():
                 if any(k in t for k in ["paciente", "nombre", "apellido"]):
                     col_paciente = c
-                elif any(k in t for k in ["fecha turno", "fecha de", "fecha"]):
-                    col_fecha = c
-                elif any(k in t for k in ["prestación", "prestacion", "servicio", "práctica", "practica"]):
-                    col_prestacion = c
-                elif any(k in t for k in ["cie10", "cie-10", "diag", "diagnóstico", "diagnostico"]):
-                    col_diagnostico = c
+                elif any(k in t for k in ["cie10", "cie-10", "cie 10", "cie", "diag", "diagnóstico", "diagnostico", "motivo", "patolog", "afeccion", "cuadro"]):
+                    if c not in cols_diagnostico:
+                        cols_diagnostico.append(c)
                 elif "sexo" in t:
                     col_sexo = c
                 elif "edad" in t:
@@ -469,6 +507,31 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
                     col_rnos = c
                 elif any(k in t for k in ["obra social", "cobertura", "prepaga", "o.s."]):
                     col_obra_social = c
+
+            # Detección inteligente de la columna de fecha de atención/prestación (evitando nacimiento/carga/vencimiento)
+            for c, t in row_vals.items():
+                if any(ex in t for ex in ["nacim", "nac", "venc", "emis", "carg", "alta", "baja"]):
+                    continue
+                if any(k in t for k in ["fecha de atenc", "fecha atenc", "fecha de prest", "fecha prest", "fecha turno", "fecha consult", "f. atenc", "f. prest"]):
+                    col_fecha = c
+                    break
+
+            if not col_fecha:
+                for c, t in row_vals.items():
+                    if any(ex in t for ex in ["nacim", "nac", "venc", "emis", "carg", "alta", "baja"]):
+                        continue
+                    if any(k in t for k in ["ingreso", "egreso", "atencion", "prestacion"]) and "fecha" in t:
+                        col_fecha = c
+                        break
+
+            if not col_fecha:
+                for c, t in row_vals.items():
+                    if any(ex in t for ex in ["nacim", "nac", "venc", "emis", "carg", "alta", "baja"]):
+                        continue
+                    if "fecha" in t:
+                        col_fecha = c
+                        break
+
             break
 
     if not fila_encabezado:
@@ -480,8 +543,6 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
     col_dni = col_dni or 1
     col_paciente = col_paciente or 3
     col_fecha = col_fecha or 11
-    col_prestacion = col_prestacion or 12
-    col_diagnostico = col_diagnostico or 13
 
     # Buscar columna de Obra Social si no se detectó por encabezado
     if not col_obra_social:
@@ -545,10 +606,30 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
 
         nombre_val = str(ws.cell(fila, col_paciente).value or "").strip()
         fecha_val = formatear_fecha(ws.cell(fila, col_fecha).value)
-        serv_val = str(ws.cell(fila, col_prestacion).value or "").strip()
-        if not serv_val or serv_val.upper() in ["CONSULTA", "CONSULTAS", "CONSULTA MEDICA", "AMBULATORIO", "AMBULATORIA", "GUARDIA", "CONSULTA EXTERNA"]:
-            serv_val = especialidad_defecto or "CARDIOLOGIA"
-        diag_val = str(ws.cell(fila, col_diagnostico).value or "").strip()
+
+        # Especialidad fijada en CARDIOLOGIA
+        serv_val = "CARDIOLOGIA"
+
+        # Captura exhaustiva de diagnóstico en todas las columnas candidatas
+        diag_val = ""
+        for c_diag in cols_diagnostico:
+            v = str(ws.cell(fila, c_diag).value or "").strip()
+            if v and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", "CONSULTA", ""]:
+                if not diag_val:
+                    diag_val = v
+                elif len(v) > len(diag_val):
+                    diag_val = v
+
+        # Fallback si las columnas candidatas vinieron vacías para este paciente
+        if not diag_val:
+            for c_scan in range(1, min(ws.max_column + 1, 35)):
+                if c_scan in [col_dni, col_paciente, col_fecha, col_sexo, col_edad, col_rnos, col_obra_social]:
+                    continue
+                v = str(ws.cell(fila, c_scan).value or "").strip()
+                if v and len(v) >= 3 and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", "CONSULTA", "TITULAR", "M", "F", "NO AFILIADO"]:
+                    diag_val = v
+                    break
+
         sexo_val = str(ws.cell(fila, col_sexo).value or "").strip() if col_sexo else ""
         edad_val = str(ws.cell(fila, col_edad).value or "").strip() if col_edad else ""
 
@@ -575,7 +656,7 @@ def parsear_fecha_para_orden(fecha_str):
     if not fecha_str:
         return "9999-99-99"
     d, m, y = desglosar_fecha(fecha_str)
-    if d and m and y:
+    if d and m and y and len(y) == 4 and len(m) == 2 and len(d) == 2:
         return f"{y}-{m}-{d}"
     return str(fecha_str).strip()
 
@@ -583,7 +664,7 @@ def parsear_fecha_para_orden(fecha_str):
 def ordenar_pacientes_anexos(pacientes):
     """
     Ordena la lista de pacientes agrupando primero por código RNOS (u Obra Social),
-    luego cronológicamente por Fecha de prestación (antigua a reciente),
+    luego cronológicamente por Fecha de prestación de menor a mayor (antigua a reciente, de un mes al otro),
     y finalmente por Apellido y Nombre.
     """
     if not pacientes:
@@ -592,8 +673,11 @@ def ordenar_pacientes_anexos(pacientes):
     def clave_orden(p):
         rnos = str(p.get("rnos") or "").strip()
         os_nom = str(p.get("obra_social") or "").strip().upper()
-        # Agrupación por código RNOS (si no tiene, por nombre de obra social al final)
-        cod_agrupacion = rnos if rnos else f"ZZZ_{os_nom}"
+        if not rnos and os_nom:
+            rnos = buscar_rnos_por_nombre(os_nom)
+        # Normalizar código RNOS a dígitos para agrupar exactamente la misma obra social
+        rnos_digs = re.sub(r'\D', '', rnos)
+        cod_agrupacion = rnos_digs if rnos_digs else f"ZZZ_{os_nom}"
         fecha_ord = parsear_fecha_para_orden(p.get("fecha"))
         nombre = str(p.get("nombre") or "").strip().upper()
         return (cod_agrupacion, fecha_ord, nombre)

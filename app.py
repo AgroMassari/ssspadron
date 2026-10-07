@@ -921,6 +921,10 @@ def procesar_archivo(
         # ----------------------------------------------------
         # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX OFICIAL)
         # ----------------------------------------------------
+        estado["estado"] = "generando_anexos"
+        estado["ultimo_resultado"] = "Generando y ordenando fojas de Anexo II en Word..."
+        guardar_estado_proceso(id_proceso, estado)
+
         archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
         cant_anexos = 0
         try:
