@@ -4,6 +4,7 @@ import time
 import uuid
 import threading
 import html
+import unicodedata
 from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1267,63 +1268,96 @@ def generar_anexos_directo():
     if request.method == "GET":
         return redirect("/")
 
-    archivo = request.files.get("archivo")
-    if not archivo or archivo.filename == "":
-        return """
-        <h2>No se seleccionó ningún archivo Excel.</h2>
-        <a href="/">Volver</a>
-        """, 400
-
-    if not archivo.filename.lower().endswith(".xlsx"):
-        return """
-        <h2>El archivo debe ser un Excel (.xlsx)</h2>
-        <a href="/">Volver</a>
-        """, 400
-
-    identificador = uuid.uuid4().hex
-    temp_excel = UPLOAD_DIR / f"anexo_upload_{identificador}.xlsx"
-    temp_docx = RESULT_DIR / f"anexos_II_{identificador}.docx"
-    archivo.save(temp_excel)
-
     try:
+        archivo = request.files.get("archivo")
+        if not archivo or not archivo.filename:
+            return """
+            <!DOCTYPE html>
+            <html>
+            <head><title>Aviso</title><meta charset="utf-8"></head>
+            <body style="font-family: sans-serif; padding: 40px; background: #0f172a; color: #f8fafc; text-align: center;">
+                <h2 style="color: #f59e0b;">⚠️ No se seleccionó ningún archivo Excel</h2>
+                <p style="color: #94a3b8; max-width: 500px; margin: 15px auto;">Por favor seleccioná un archivo .xlsx antes de generar los anexos.</p>
+                <a href="/" style="display: inline-block; padding: 10px 20px; background: #6366f1; color: white; border-radius: 6px; text-decoration: none; font-weight: bold;">⬅ Volver al inicio</a>
+            </body>
+            </html>
+            """, 200
+
+        ext = Path(archivo.filename).suffix.lower()
+        if ext != ".xlsx":
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head><title>Formato no compatible</title><meta charset="utf-8"></head>
+            <body style="font-family: sans-serif; padding: 40px; background: #0f172a; color: #f8fafc; text-align: center;">
+                <h2 style="color: #ef4444;">❌ El archivo debe ser un Excel (.xlsx)</h2>
+                <p style="color: #94a3b8; max-width: 580px; margin: 15px auto; line-height: 1.5;">El archivo subido tiene extensión <code>{ext}</code>.<br>Si es un .xls antiguo, abrilo en Excel y guardalo como <strong>"Libro de Excel (*.xlsx)"</strong>.</p>
+                <a href="/" style="display: inline-block; padding: 10px 20px; background: #6366f1; color: white; border-radius: 6px; text-decoration: none; font-weight: bold;">⬅ Volver al inicio</a>
+            </body>
+            </html>
+            """, 200
+
+        identificador = uuid.uuid4().hex
+        temp_excel = UPLOAD_DIR / f"anexo_upload_{identificador}.xlsx"
+        temp_docx = RESULT_DIR / f"anexos_II_{identificador}.docx"
+        archivo.save(str(temp_excel))
+
         esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
         hosp_id = request.form.get("hospital", "san_roque")
         hosp_custom_nom = request.form.get("hospital_nombre_custom", "").strip()
         hosp_custom_ref = request.form.get("hospital_refes_custom", "").strip()
         hosp_info = resolver_hospital(hosp_id, hosp_custom_nom, hosp_custom_ref)
 
-        pacientes = extraer_pacientes_afiliados_excel(temp_excel, especialidad_defecto=esp_req)
+        pacientes = extraer_pacientes_afiliados_excel(str(temp_excel), especialidad_defecto=esp_req)
         if not pacientes:
             return """
-            <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>
-            <p>Asegurate de que el archivo contenga columnas con DNI, Paciente y Obra Social verificada.</p>
-            <a href="/">Volver al inicio</a>
-            """, 400
+            <!DOCTYPE html>
+            <html>
+            <head><title>Sin afiliados</title><meta charset="utf-8"></head>
+            <body style="font-family: sans-serif; padding: 40px; background: #0f172a; color: #f8fafc; text-align: center;">
+                <h2 style="color: #f59e0b;">⚠️ No se encontraron pacientes afiliados con Obra Social válida</h2>
+                <p style="color: #94a3b8; max-width: 600px; margin: 15px auto; line-height: 1.6;">
+                    No se detectaron registros con Obra Social identificada en el archivo Excel subido.<br>
+                    Asegurate de que contenga columnas con <strong>DNI</strong>, <strong>Paciente</strong> y <strong>Obra Social</strong> verificada.
+                </p>
+                <a href="/" style="display: inline-block; padding: 10px 20px; background: #6366f1; color: white; border-radius: 6px; text-decoration: none; font-weight: bold;">⬅ Volver al inicio</a>
+            </body>
+            </html>
+            """, 200
 
         generar_anexos_docx(
             pacientes,
-            temp_docx,
+            str(temp_docx),
             hospital_nombre=hosp_info["nombre"],
             hospital_refes=hosp_info["refes"]
         )
-        nombre_descarga = f"Anexos_II_{Path(archivo.filename).stem}.docx"
+
+        # Nombre seguro y ASCII para encabezados HTTP
+        raw_stem = Path(archivo.filename).stem
+        stem_ascii = unicodedata.normalize('NFKD', raw_stem).encode('ASCII', 'ignore').decode('ASCII')
+        stem_seguro = re.sub(r'[^a-zA-Z0-9_\-]', '_', stem_ascii).strip('_') or "pacientes"
+        nombre_descarga = f"Anexos_II_{stem_seguro}.docx"
+
         return send_file(
-            temp_docx,
+            str(temp_docx),
             as_attachment=True,
-            download_name=nombre_descarga
+            download_name=nombre_descarga,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
     except Exception as e:
         import traceback
         traceback.print_exc()
+        err_msg = html.escape(str(e))
         return f"""
         <!DOCTYPE html>
         <html>
         <head><title>Error</title><meta charset="utf-8"></head>
         <body style="font-family: sans-serif; padding: 40px; background: #0f172a; color: #f8fafc;">
-            <h2 style="color: #ef4444;">❌ Error al generar Anexos II</h2>
-            <div style="background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin: 20px 0; font-family: monospace; font-size: 14px;">
-                {e}
+            <h2 style="color: #ef4444;">❌ Error al procesar el archivo Excel para Anexos II</h2>
+            <div style="background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin: 20px 0; font-family: monospace; font-size: 14px; color: #fca5a5;">
+                {err_msg}
             </div>
+            <p style="color: #94a3b8;">Revisá que el Excel tenga las columnas de DNI, Paciente y Obra Social o volvé a intentar.</p>
             <a href="/" style="display: inline-block; padding: 10px 20px; background: #6366f1; color: white; border-radius: 6px; text-decoration: none; font-weight: bold;">⬅ Volver al inicio</a>
         </body>
         </html>
@@ -1346,27 +1380,29 @@ def generar_anexos_pdf_directo():
 
 @app.route("/imprimir_anexos_directo", methods=["POST"])
 def imprimir_anexos_directo():
-    archivo = request.files.get("archivo")
-    if not archivo or not archivo.filename.lower().endswith(".xlsx"):
-        return "Debe subir un archivo Excel (.xlsx)", 400
-
-    identificador = uuid.uuid4().hex
-    temp_excel = UPLOAD_DIR / f"anexo_print_{identificador}.xlsx"
-    archivo.save(temp_excel)
-
     try:
+        archivo = request.files.get("archivo")
+        if not archivo or not archivo.filename:
+            return "No se subió ningún archivo.", 200
+        if not archivo.filename.lower().endswith(".xlsx"):
+            return "El archivo debe ser un Excel (.xlsx)", 200
+
+        identificador = uuid.uuid4().hex
+        temp_excel = UPLOAD_DIR / f"anexo_print_{identificador}.xlsx"
+        archivo.save(str(temp_excel))
+
         esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
         hosp_id = request.form.get("hospital", "san_roque")
         hosp_custom_nom = request.form.get("hospital_nombre_custom", "").strip()
         hosp_custom_ref = request.form.get("hospital_refes_custom", "").strip()
         hosp_info = resolver_hospital(hosp_id, hosp_custom_nom, hosp_custom_ref)
 
-        pacientes = extraer_pacientes_afiliados_excel(temp_excel, especialidad_defecto=esp_req)
+        pacientes = extraer_pacientes_afiliados_excel(str(temp_excel), especialidad_defecto=esp_req)
         if not pacientes:
             return """
             <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>
             <a href="/">Volver al inicio</a>
-            """, 400
+            """, 200
 
         return render_template(
             "imprimir_anexos.html",
@@ -1376,7 +1412,9 @@ def imprimir_anexos_directo():
             hospital_refes=hosp_info["refes"]
         )
     except Exception as e:
-        return f"<h2>Error preparando fojas para impresión:</h2><p>{e}</p><a href='/'>Volver</a>", 500
+        import traceback
+        traceback.print_exc()
+        return f"<h2>Error preparando fojas para impresión:</h2><p>{html.escape(str(e))}</p><a href='/'>Volver</a>", 200
 
 
 # ============================================================
@@ -1669,6 +1707,36 @@ def chat():
         return jsonify({"ok": True, "respuesta": respuesta_texto})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ============================================================
+# MANEJADORES GLOBALES DE ERROR (PREVENIR PANTALLAS BLANCAS 500)
+# ============================================================
+
+@app.errorhandler(500)
+@app.errorhandler(Exception)
+def error_global_servidor(e):
+    import traceback
+    traceback.print_exc()
+    tb_txt = html.escape(traceback.format_exc())
+    err_str = html.escape(str(e))
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><title>Aviso del Sistema</title><meta charset="utf-8"></head>
+    <body style="font-family: sans-serif; padding: 40px; background: #0f172a; color: #f8fafc;">
+        <h2 style="color: #ef4444;">❌ Se produjo una incidencia en el servidor</h2>
+        <div style="background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin: 20px 0; font-family: monospace; font-size: 14px; color: #fca5a5;">
+            {err_str}
+        </div>
+        <details style="margin: 15px 0;">
+            <summary style="cursor: pointer; color: #94a3b8; font-size: 13px;">Ver detalle técnico del error</summary>
+            <pre style="background: #090d16; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; color: #cbd5e1; margin-top: 10px;">{tb_txt}</pre>
+        </details>
+        <a href="/" style="display: inline-block; padding: 10px 20px; background: #6366f1; color: white; border-radius: 6px; text-decoration: none; font-weight: bold;">⬅ Volver al inicio</a>
+    </body>
+    </html>
+    """, 200
 
 
 # ============================================================

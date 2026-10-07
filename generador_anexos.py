@@ -497,6 +497,25 @@ def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, h
         c3_diag = _formatear_celda_texto(r13_cells[3], diagnostico, font_sz="15")
         filas[13] = filas[13].replace(r13_cells[3], c3_diag, 1)
 
+    # 5b. R17: Casilla de Internación SIEMPRE vacía (sin 'X')
+    if len(filas) > 17:
+        r17_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[17])
+        if len(r17_cells) >= 2:
+            # Quitar cualquier 'X' de la casilla de Internación (celda 1)
+            c1_sin_x = re.sub(
+                r'<w:r[\s\S]*?<w:t[^>]*>\s*X\s*</w:t>[\s\S]*?</w:r>',
+                r'',
+                r17_cells[1],
+                flags=re.IGNORECASE
+            )
+            c1_sin_x = re.sub(
+                r'<w:t[^>]*>\s*X\s*</w:t>',
+                r'',
+                c1_sin_x,
+                flags=re.IGNORECASE
+            )
+            filas[17] = filas[17].replace(r17_cells[1], c1_sin_x, 1)
+
     # 6. R21: Obra Social en c0, RNAS en c1
     r21_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[21])
     if len(r21_cells) >= 3:
@@ -528,8 +547,8 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
     Garantiza captura de diagnóstico en todas las columnas y ordenamiento cronológico de menor a mayor.
     """
     wb = openpyxl.load_workbook(excel_path, data_only=True)
-    ws = wb.active
-    max_row = ws.max_row
+    ws = wb.active or wb.worksheets[0]
+    max_row = ws.max_row or 1
 
     # 1. Detectar fila de encabezados reales
     fila_encabezado = None
@@ -568,9 +587,9 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
                     col_sexo = c
                 elif "edad" in t:
                     col_edad = c
-                elif any(k in t for k in ["rnos", "rnas", "código os", "codigo os"]):
+                elif any(k in t for k in ["rnos", "rnas", "código os", "codigo os", "cod os", "cod. os", "cod rnos"]):
                     col_rnos = c
-                elif any(k in t for k in ["obra social", "cobertura", "prepaga", "o.s."]):
+                elif any(k in t for k in ["obra social", "obrasocial", "obra_social", "cobertura", "prepaga", "o.s.", "o. social", "mutual", "entidad", "financiador", "padron", "padrón", "seguro", "sssalud", "sss", "resultado"]):
                     col_obra_social = c
                 elif any(k in t for k in ["especialidad", "servicio"]):
                     col_servicio = c
@@ -608,22 +627,36 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
         fila_datos = fila_encabezado + 1
 
     col_dni = col_dni or 1
-    col_paciente = col_paciente or 3
-    col_fecha = col_fecha or 11
+    col_paciente = col_paciente or (2 if col_dni != 2 else 3)
 
     # Buscar columna de Obra Social si no se detectó por encabezado
     if not col_obra_social:
-        for c in range(1, 40):
+        for c in range(1, min(ws.max_column + 1 if ws.max_column else 40, 40)):
             val_h = str(ws.cell(fila_encabezado, c).value or "").strip().lower()
-            if any(k in val_h for k in ["obra social", "cobertura", "prepaga"]):
+            if any(k in val_h for k in ["obra social", "obrasocial", "obra_social", "cobertura", "prepaga", "o.s.", "o. social", "mutual", "entidad", "financiador", "padron", "padrón", "seguro", "resultado"]):
+                col_obra_social = c
+                break
+
+    # Heurística: Si aún no se encontró columna de Obra Social, escanear primeras filas de datos
+    if not col_obra_social:
+        patron_os = re.compile(r'(PAMI|INSSJP|OSDE|APROSS|IOMA|SWISS|MEDIFE|SANCOR|UNION|PERSONAL|FEDERADA|JERARQUIC|GALENO|OSPEDYC|OSECAC|OSPE|OSPRERA|DASPU|BANCARI|DOCENTE|OBRA SOCIAL)', re.IGNORECASE)
+        for c in range(1, min(ws.max_column + 1 if ws.max_column else 40, 40)):
+            if c in [col_dni, col_paciente]:
+                continue
+            matches_count = 0
+            for f in range(fila_datos, min(fila_datos + 15, max_row + 1)):
+                cv = str(ws.cell(f, c).value or "").strip()
+                if patron_os.search(cv):
+                    matches_count += 1
+            if matches_count >= 1:
                 col_obra_social = c
                 break
 
     # Si tampoco se detectó col_rnos por encabezado
     if not col_rnos:
-        for c in range(1, 40):
+        for c in range(1, min(ws.max_column + 1 if ws.max_column else 40, 40)):
             val_h = str(ws.cell(fila_encabezado, c).value or "").strip().lower()
-            if any(k in val_h for k in ["rnos", "rnas", "código os", "codigo os"]):
+            if any(k in val_h for k in ["rnos", "rnas", "código os", "codigo os", "cod os", "cod. os", "cod rnos"]):
                 col_rnos = c
                 break
 
@@ -671,8 +704,9 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
         if not os_val or os_val.upper() in ["NO AFILIADO", "SIN DNI", "ERROR CONSULTA"]:
             continue
 
-        nombre_val = str(ws.cell(fila, col_paciente).value or "").strip()
-        fecha_val = formatear_fecha(ws.cell(fila, col_fecha).value)
+        nombre_val = str(ws.cell(fila, col_paciente).value or "").strip() if (col_paciente and ws.max_column and col_paciente <= ws.max_column) else ""
+        fecha_raw = ws.cell(fila, col_fecha).value if (col_fecha and ws.max_column and col_fecha <= ws.max_column) else None
+        fecha_val = formatear_fecha(fecha_raw) if fecha_raw else datetime.today().strftime("%d/%m/%Y")
 
         # Especialidad médica (toma lo elegido por el usuario o de la columna de servicio)
         esp_base = str(especialidad_defecto or "CARDIOLOGIA").strip().upper()
