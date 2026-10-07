@@ -919,22 +919,17 @@ def procesar_archivo(
         wb.save(archivo_salida)
 
         # ----------------------------------------------------
-        # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX Y PDF MASIVO)
+        # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX OFICIAL)
         # ----------------------------------------------------
         archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
-        archivo_anexos_pdf = RESULT_DIR / f"anexos_{id_proceso}.pdf"
         cant_anexos = 0
         try:
             pacientes_afiliados = extraer_pacientes_afiliados_excel(archivo_salida)
             if pacientes_afiliados:
                 cant_anexos = generar_anexos_docx(pacientes_afiliados, archivo_anexos)
-                try:
-                    generar_anexos_pdf(pacientes_afiliados, archivo_anexos_pdf)
-                except Exception as e_pdf:
-                    print(f"Aviso generando PDF de anexos: {e_pdf}")
-                print(f"Se generaron exitosamente {cant_anexos} Anexos II (Word y PDF)")
+                print(f"Se generaron exitosamente {cant_anexos} Anexos II en Word (.docx)")
         except Exception as e_anexos:
-            print(f"Aviso al generar Anexos II automáticos: {e_anexos}")
+            print(f"Aviso al generar Anexos II automáticos en Word: {e_anexos}")
 
         # ----------------------------------------------------
         # 9. FINALIZADO
@@ -944,7 +939,7 @@ def procesar_archivo(
         estado["porcentaje"] = 100
         estado["archivo"] = Path(archivo_salida).name
         estado["archivo_anexos"] = Path(archivo_anexos).name if cant_anexos > 0 else ""
-        estado["archivo_anexos_pdf"] = Path(archivo_anexos_pdf).name if (cant_anexos > 0 and archivo_anexos_pdf.exists()) else ""
+        estado["archivo_anexos_pdf"] = ""
         estado["anexos_generados"] = cant_anexos
         estado["segundos"] = round(time.time() - inicio, 1)
         estado["estimado_restante"] = 0
@@ -1182,31 +1177,8 @@ def descargar_anexos(id_proceso):
 
 @app.route("/descargar_anexos_pdf/<id_proceso>")
 def descargar_anexos_pdf(id_proceso):
-    archivo_pdf = RESULT_DIR / f"anexos_{id_proceso}.pdf"
-    if archivo_pdf.exists():
-        return send_file(
-            archivo_pdf,
-            as_attachment=True,
-            download_name=f"Anexos_II_Masivos_{id_proceso[:8]}.pdf"
-        )
-
-    estado = obtener_estado_proceso(id_proceso)
-    if estado and estado.get("archivo"):
-        archivo_salida = RESULT_DIR / estado["archivo"]
-        if archivo_salida.exists():
-            try:
-                pacientes = extraer_pacientes_afiliados_excel(archivo_salida)
-                if pacientes:
-                    generar_anexos_pdf(pacientes, archivo_pdf)
-                    return send_file(
-                        archivo_pdf,
-                        as_attachment=True,
-                        download_name=f"Anexos_II_Masivos_{id_proceso[:8]}.pdf"
-                    )
-            except Exception as e:
-                return f"Error generando PDF de anexos: {e}", 500
-
-    return "No se encontraron anexos para este proceso o no hay pacientes afiliados.", 404
+    # Redirigir a la descarga oficial en Word (.docx)
+    return descargar_anexos(id_proceso)
 
 
 # ============================================================
@@ -1292,47 +1264,8 @@ def generar_anexos_directo():
 
 @app.route("/generar_anexos_pdf", methods=["POST"])
 def generar_anexos_pdf_directo():
-    archivo = request.files.get("archivo")
-    if not archivo or archivo.filename == "":
-        return """
-        <h2>No se seleccionó ningún archivo Excel.</h2>
-        <a href="/">Volver</a>
-        """, 400
-
-    if not archivo.filename.lower().endswith(".xlsx"):
-        return """
-        <h2>El archivo debe ser un Excel (.xlsx)</h2>
-        <a href="/">Volver</a>
-        """, 400
-
-    identificador = uuid.uuid4().hex
-    temp_excel = UPLOAD_DIR / f"anexo_upload_{identificador}.xlsx"
-    temp_pdf = RESULT_DIR / f"anexos_II_{identificador}.pdf"
-    archivo.save(temp_excel)
-
-    try:
-        esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
-        pacientes = extraer_pacientes_afiliados_excel(temp_excel, especialidad_defecto=esp_req)
-        if not pacientes:
-            return """
-            <h2>No se encontraron pacientes afiliados con Obra Social válida en el Excel.</h2>
-            <p>Asegurate de que el archivo contenga columnas con DNI, Paciente y Obra Social verificada.</p>
-            <a href="/">Volver al inicio</a>
-            """, 400
-
-        generar_anexos_pdf(pacientes, temp_pdf)
-        nombre_descarga = f"Anexos_II_Masivos_{Path(archivo.filename).stem}.pdf"
-        return send_file(
-            temp_pdf,
-            as_attachment=True,
-            download_name=nombre_descarga
-        )
-    except Exception as e:
-        return f"""
-        <h2>Error generando PDF de Anexos II</h2>
-        <p>{e}</p>
-        <a href="/">Volver</a>
-        """, 500
+    # El usuario prefiere exclusivamente el formato oficial idéntico en Word (.docx)
+    return generar_anexos_directo()
 
 
 # ============================================================

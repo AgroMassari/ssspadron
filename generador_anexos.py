@@ -176,38 +176,79 @@ def extraer_rnos_y_obrasocial(res_dni):
     return rnos, obra_social
 
 
-def formatear_fecha(valor):
+def desglosar_fecha(valor):
     """
-    Formatea la fecha de atención estrictamente como 'DD / MM / YYYY' con espacios
-    entre barras para adaptarse limpiamente al primer recuadro del Anexo II.
+    Desglosa una fecha en tupla (dia, mes, anio) como strings ("17", "07", "2026").
+    Soporta datetime, date, y strings en formatos DD/MM/YYYY, YYYY-MM-DD, etc.
     """
     if valor is None:
-        return ""
+        return "", "", ""
     if isinstance(valor, (datetime, date)):
-        return valor.strftime("%d / %m / %Y")
+        return f"{valor.day:02d}", f"{valor.month:02d}", f"{valor.year:04d}"
     val_str = str(valor).strip()
     if not val_str:
-        return ""
-    val_str = val_str.split()[0].split('T')[0]
-    # YYYY/MM/DD o YYYY-MM-DD
-    m = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$', val_str)
-    if m:
-        return f"{int(m.group(3)):02d} / {int(m.group(2)):02d} / {m.group(1)}"
-    # DD/MM/YYYY o DD-MM-YYYY
-    m2 = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$', val_str)
-    if m2:
-        anio = m2.group(3)
-        if len(anio) == 2:
-            anio = f"20{anio}"
-        return f"{int(m2.group(1)):02d} / {int(m2.group(2)):02d} / {anio}"
-    # Si ya viene con espacios tipo "06 / 08 / 2026"
-    m3 = re.match(r'^(\d{1,2})\s*[-/]\s*(\d{1,2})\s*[-/]\s*(\d{2,4})$', val_str)
-    if m3:
-        anio = m3.group(3)
-        if len(anio) == 2:
-            anio = f"20{anio}"
-        return f"{int(m3.group(1)):02d} / {int(m3.group(2)):02d} / {anio}"
-    return val_str
+        return "", "", ""
+    val_str = val_str.split()[0].split('T')[0].strip()
+
+    # 1. YYYY-MM-DD o YYYY/MM/DD
+    m_iso = re.match(r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$', val_str)
+    if m_iso:
+        y, m, d = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
+        return f"{d:02d}", f"{m:02d}", f"{y:04d}"
+
+    # 2. DD/MM/YYYY o DD-MM-YYYY (admite espacios y barras)
+    original = str(valor).strip().split('T')[0]
+    m_lat = re.match(r'^(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{2,4})', original)
+    if m_lat:
+        d, m = int(m_lat.group(1)), int(m_lat.group(2))
+        y_str = m_lat.group(3)
+        y = int(y_str)
+        if len(y_str) == 2:
+            y = 2000 + y if y < 50 else 1900 + y
+        return f"{d:02d}", f"{m:02d}", f"{y:04d}"
+
+    # 3. Dígitos separados por espacio (ej. "17 07 2026")
+    partes = re.split(r'\s+', original)
+    if len(partes) == 3 and all(p.isdigit() for p in partes):
+        if len(partes[0]) == 4:
+            return f"{int(partes[2]):02d}", f"{int(partes[1]):02d}", partes[0]
+        else:
+            y = partes[2]
+            if len(y) == 2:
+                y = f"20{y}"
+            return f"{int(partes[0]):02d}", f"{int(partes[1]):02d}", y
+
+    return val_str, "", ""
+
+
+def formatear_fecha(valor):
+    """
+    Retorna la fecha formateada como 'DD/MM/YYYY' para tablas o textos.
+    """
+    d, m, y = desglosar_fecha(valor)
+    if d and m and y:
+        return f"{d}/{m}/{y}"
+    elif d and m:
+        return f"{d}/{m}"
+    return str(valor or "").strip()
+
+
+def _formatear_celda_fecha(cell_xml, texto):
+    """
+    Formatea una celda de recuadro de fecha (Día, Mes o Año) centrada y en negrita,
+    preservando el ancho original y evitando cortes o wrap indeseado.
+    """
+    tcPr_m = re.search(r'<w:tcPr>[\s\S]*?</w:tcPr>', cell_xml)
+    tcPr_xml = tcPr_m.group(0) if tcPr_m else ''
+    if '<w:tcPr>' in cell_xml and '<w:noWrap/>' not in tcPr_xml:
+        tcPr_xml = tcPr_xml.replace('</w:tcPr>', '<w:noWrap/></w:tcPr>', 1)
+    p_xml = (
+        f'<w:p><w:pPr><w:jc w:val="center"/></w:pPr>'
+        f'<w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/>'
+        f'<w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>'
+        f'<w:t>{escapar_xml(str(texto or ""))}</w:t></w:r></w:p>'
+    )
+    return f'<w:tc>{tcPr_xml}{p_xml}</w:tc>'
 
 
 def _renderizar_tabla_paciente(tabla_template, paciente):
@@ -286,50 +327,36 @@ def _renderizar_tabla_paciente(tabla_template, paciente):
             )
             filas[8] = filas[8].replace(r8_cells[18], c18_edad, 1)
 
-    # 3. R1 y R11: Fecha de atención (en el primer recuadro de 3, con formato DD / MM / YYYY)
+    # 3. R1 y R11: Fecha de atención desglosada en los 3 recuadros oficiales:
+    #    Recuadro 1: DÍA (DD)
+    #    Recuadro 2: MES (MM)
+    #    Recuadro 3: AÑO (YYYY)
     fecha = paciente.get("fecha", "")
-    if fecha:
-        fecha_fmt = formatear_fecha(fecha)
+    dia_str, mes_str, anio_str = desglosar_fecha(fecha)
 
-        # Cabecera (R1 celda 1: el primer cuadrito de los 3 bajo 'Fecha')
-        r1_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[1])
-        if len(r1_cells) >= 4:
-            c1_fec = re.sub(
-                r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-                rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="14"/><w:szCs w:val="14"/></w:rPr><w:t>{escapar_xml(fecha_fmt)}</w:t></w:r>\3',
-                r1_cells[1],
-                count=1
-            )
-            if '<w:tcPr>' in c1_fec and '<w:noWrap/>' not in c1_fec:
-                c1_fec = c1_fec.replace('</w:tcPr>', '<w:noWrap/></w:tcPr>', 1)
+    # Cabecera (R1: celdas 1, 2 y 3 bajo 'Fecha')
+    r1_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[1])
+    if len(r1_cells) >= 4:
+        c1_dia = _formatear_celda_fecha(r1_cells[1], dia_str)
+        c1_mes = _formatear_celda_fecha(r1_cells[2], mes_str)
+        c1_anio = _formatear_celda_fecha(r1_cells[3], anio_str)
 
-            c1_vacio2 = re.sub(r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)', r'\1\3', r1_cells[2], count=1)
-            c1_vacio3 = re.sub(r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)', r'\1\3', r1_cells[3], count=1)
+        filas[1] = (filas[1]
+                    .replace(r1_cells[1], c1_dia, 1)
+                    .replace(r1_cells[2], c1_mes, 1)
+                    .replace(r1_cells[3], c1_anio, 1))
 
-            filas[1] = (filas[1]
-                        .replace(r1_cells[1], c1_fec, 1)
-                        .replace(r1_cells[2], c1_vacio2, 1)
-                        .replace(r1_cells[3], c1_vacio3, 1))
+    # Fecha de prestación (R11: celdas 1, 2 y 3 bajo 'Fecha de prestación')
+    r11_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[11])
+    if len(r11_cells) >= 4:
+        c11_dia = _formatear_celda_fecha(r11_cells[1], dia_str)
+        c11_mes = _formatear_celda_fecha(r11_cells[2], mes_str)
+        c11_anio = _formatear_celda_fecha(r11_cells[3], anio_str)
 
-        # Fecha de prestación (R11 celda 1: el primer cuadrito de los 3 bajo 'Fecha de prestación')
-        r11_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[11])
-        if len(r11_cells) >= 4:
-            c11_fec = re.sub(
-                r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-                rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="14"/><w:szCs w:val="14"/></w:rPr><w:t>{escapar_xml(fecha_fmt)}</w:t></w:r>\3',
-                r11_cells[1],
-                count=1
-            )
-            if '<w:tcPr>' in c11_fec and '<w:noWrap/>' not in c11_fec:
-                c11_fec = c11_fec.replace('</w:tcPr>', '<w:noWrap/></w:tcPr>', 1)
-
-            c11_vacio2 = re.sub(r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)', r'\1\3', r11_cells[2], count=1)
-            c11_vacio3 = re.sub(r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)', r'\1\3', r11_cells[3], count=1)
-
-            filas[11] = (filas[11]
-                         .replace(r11_cells[1], c11_fec, 1)
-                         .replace(r11_cells[2], c11_vacio2, 1)
-                         .replace(r11_cells[3], c11_vacio3, 1))
+        filas[11] = (filas[11]
+                     .replace(r11_cells[1], c11_dia, 1)
+                     .replace(r11_cells[2], c11_mes, 1)
+                     .replace(r11_cells[3], c11_anio, 1))
 
     # 4. R12: Tipo de atención (Consulta c1 = X, Especialidad c3 = CARDIOLOGIA por defecto)
     r12_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[12])
@@ -547,17 +574,10 @@ def parsear_fecha_para_orden(fecha_str):
     """
     if not fecha_str:
         return "9999-99-99"
-    f = str(fecha_str).strip()
-    m = re.match(r'^(\d{1,2})\s*[-/]\s*(\d{1,2})\s*[-/]\s*(\d{2,4})', f)
-    if m:
-        d, mth, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        if y < 100:
-            y += 2000
-        return f"{y:04d}-{mth:02d}-{d:02d}"
-    m2 = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})', f)
-    if m2:
-        return f"{int(m2.group(1)):04d}-{int(m2.group(2)):02d}-{int(m2.group(3)):02d}"
-    return f
+    d, m, y = desglosar_fecha(fecha_str)
+    if d and m and y:
+        return f"{y}-{m}-{d}"
+    return str(fecha_str).strip()
 
 
 def ordenar_pacientes_anexos(pacientes):
