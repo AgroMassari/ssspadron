@@ -664,9 +664,16 @@
                     <input type="text" name="especialidad" class="input-especialidad" value="CARDIOLOGIA" style="width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-weight: bold; font-size: 0.95rem;">
                 </div>
 
-                <button type="submit" class="btn btn-purple" style="width: 100%; font-size: 1rem; padding: 13px 20px; font-weight: 700; letter-spacing: 0.3px;">
-                    📄 GENERAR Y DESCARGAR ANEXOS II (WORD .DOCX)
-                </button>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button type="submit" name="accion" value="con_comprobante" class="btn btn-purple" style="width: 100%; font-size: 0.95rem; padding: 13px 18px; font-weight: 700; letter-spacing: 0.3px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+                        <span>📑 GENERAR ANEXOS II + COMPROBANTES SSSALUD (.DOCX)</span>
+                        <span style="font-size: 0.76rem; font-weight: 400; opacity: 0.85;">2 fojas por paciente (Anexo II + Comprobante Web para frente y dorso)</span>
+                    </button>
+                    <button type="submit" name="accion" value="solo_anexo" class="btn" style="width: 100%; font-size: 0.92rem; padding: 11px 18px; font-weight: 600; background: var(--surface2); color: var(--text); border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+                        <span>📄 GENERAR SOLO ANEXOS II (.DOCX)</span>
+                        <span style="font-size: 0.74rem; font-weight: 400; color: var(--muted);">1 foja por paciente (Solo formulario oficial Anexo II)</span>
+                    </button>
+                </div>
 
             </form>
 

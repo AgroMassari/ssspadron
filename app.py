@@ -926,6 +926,8 @@ def procesar_archivo(
         # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX OFICIAL)
         # ----------------------------------------------------
         archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
+        archivo_anexos_con_comp = RESULT_DIR / f"anexos_con_comp_{id_proceso}.docx"
+        archivo_anexos_solos = RESULT_DIR / f"anexos_solos_{id_proceso}.docx"
         cant_anexos = 0
         try:
             esp_base = especialidad or estado.get("especialidad", "CARDIOLOGIA")
@@ -942,8 +944,26 @@ def procesar_archivo(
                     archivo_anexos,
                     hospital_nombre=h_nom,
                     hospital_refes=h_ref,
-                    progress_callback=progreso_anexo
+                    progress_callback=progreso_anexo,
+                    incluir_comprobante=True
                 )
+                try:
+                    import shutil
+                    shutil.copyfile(archivo_anexos, archivo_anexos_con_comp)
+                except Exception:
+                    pass
+
+                try:
+                    generar_anexos_docx(
+                        pacientes_afiliados,
+                        archivo_anexos_solos,
+                        hospital_nombre=h_nom,
+                        hospital_refes=h_ref,
+                        incluir_comprobante=False
+                    )
+                except Exception as e_solos:
+                    print(f"Aviso al pregenerar versión de solo anexos: {e_solos}")
+
                 print(f"Se generaron exitosamente {cant_anexos} Anexos II en Word (.docx) para {h_nom}")
         except Exception as e_anexos:
             print(f"Aviso al generar Anexos II automáticos en Word: {e_anexos}")
@@ -956,6 +976,7 @@ def procesar_archivo(
         estado["porcentaje"] = 100
         estado["archivo"] = Path(archivo_salida).name
         estado["archivo_anexos"] = Path(archivo_anexos).name if cant_anexos > 0 else ""
+        estado["archivo_anexos_solos"] = Path(archivo_anexos_solos).name if cant_anexos > 0 else ""
         estado["archivo_anexos_pdf"] = ""
         estado["anexos_generados"] = cant_anexos
         estado["segundos"] = round(time.time() - inicio, 1)
@@ -1248,15 +1269,31 @@ def descargar_excel_por_id(id_proceso):
 
 @app.route("/descargar_anexos/<id_proceso>")
 def descargar_anexos(id_proceso):
-    archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
+    comp_param = request.args.get("comprobante", "1").strip().lower()
+    incluir_comprobante = comp_param not in ["0", "false", "no", "solo", "solo_anexo"]
+
+    if incluir_comprobante:
+        archivo_objetivo = RESULT_DIR / f"anexos_con_comp_{id_proceso}.docx"
+        archivo_fallback = RESULT_DIR / f"anexos_{id_proceso}.docx"
+        download_name = f"Anexos_II_con_Comprobantes_{id_proceso[:8]}.docx"
+    else:
+        archivo_objetivo = RESULT_DIR / f"anexos_solos_{id_proceso}.docx"
+        archivo_fallback = None
+        download_name = f"Anexos_II_Solos_{id_proceso[:8]}.docx"
 
     # Si se está generando en segundo plano en este momento, esperar unos segundos a que termine el empaquetado
     for _ in range(40):
-        if archivo_anexos.exists():
+        if archivo_objetivo.exists():
             return send_file(
-                archivo_anexos,
+                archivo_objetivo,
                 as_attachment=True,
-                download_name=f"Anexos_II_{id_proceso[:8]}.docx"
+                download_name=download_name
+            )
+        if archivo_fallback and archivo_fallback.exists():
+            return send_file(
+                archivo_fallback,
+                as_attachment=True,
+                download_name=download_name
             )
         estado = obtener_estado_proceso(id_proceso)
         if estado and estado.get("estado") in ["guardando", "generando_anexos", "escribiendo_excel"]:
@@ -1264,11 +1301,17 @@ def descargar_anexos(id_proceso):
         else:
             break
 
-    if archivo_anexos.exists():
+    if archivo_objetivo.exists():
         return send_file(
-            archivo_anexos,
+            archivo_objetivo,
             as_attachment=True,
-            download_name=f"Anexos_II_{id_proceso[:8]}.docx"
+            download_name=download_name
+        )
+    if archivo_fallback and archivo_fallback.exists():
+        return send_file(
+            archivo_fallback,
+            as_attachment=True,
+            download_name=download_name
         )
 
     estado = obtener_estado_proceso(id_proceso)
@@ -1304,15 +1347,16 @@ def descargar_anexos(id_proceso):
                 h_refes = (estado and estado.get("hospital_refes")) or HOSPITAL_DEFECTO["refes"]
                 generar_anexos_docx(
                     pacientes,
-                    archivo_anexos,
+                    archivo_objetivo,
                     hospital_nombre=h_nombre,
-                    hospital_refes=h_refes
+                    hospital_refes=h_refes,
+                    incluir_comprobante=incluir_comprobante
                 )
-                if archivo_anexos.exists():
+                if archivo_objetivo.exists():
                     return send_file(
-                        archivo_anexos,
+                        archivo_objetivo,
                         as_attachment=True,
-                        download_name=f"Anexos_II_{id_proceso[:8]}.docx"
+                        download_name=download_name
                     )
         except Exception as e:
             return f"Error generando anexos: {e}", 500
@@ -1410,9 +1454,14 @@ def generar_anexos_directo():
             </html>
             """, 200
 
+        accion = request.form.get("accion", "con_comprobante").strip().lower()
+        formato_comp = request.form.get("formato_comprobante", "").strip().lower()
+        incluir_comprobante = (accion != "solo_anexo" and formato_comp not in ["solo_anexo", "0", "false"])
+
         identificador = uuid.uuid4().hex
         temp_excel = UPLOAD_DIR / f"anexo_upload_{identificador}.xlsx"
-        temp_docx = RESULT_DIR / f"anexos_II_{identificador}.docx"
+        prefijo_doc = "anexos_con_comp" if incluir_comprobante else "anexos_solos"
+        temp_docx = RESULT_DIR / f"{prefijo_doc}_{identificador}.docx"
         archivo.save(str(temp_excel))
 
         esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
@@ -1442,7 +1491,8 @@ def generar_anexos_directo():
             pacientes,
             str(temp_docx),
             hospital_nombre=hosp_info["nombre"],
-            hospital_refes=hosp_info["refes"]
+            hospital_refes=hosp_info["refes"],
+            incluir_comprobante=incluir_comprobante
         )
 
         # Liberar archivo temporal y memoria RAM
@@ -1458,7 +1508,10 @@ def generar_anexos_directo():
         raw_stem = Path(archivo.filename).stem
         stem_ascii = unicodedata.normalize('NFKD', raw_stem).encode('ASCII', 'ignore').decode('ASCII')
         stem_seguro = re.sub(r'[^a-zA-Z0-9_\-]', '_', stem_ascii).strip('_') or "pacientes"
-        nombre_descarga = f"Anexos_II_{stem_seguro}.docx"
+        if incluir_comprobante:
+            nombre_descarga = f"Anexos_II_con_Comprobantes_{stem_seguro}.docx"
+        else:
+            nombre_descarga = f"Anexos_II_Solos_{stem_seguro}.docx"
 
         return send_file(
             str(temp_docx),

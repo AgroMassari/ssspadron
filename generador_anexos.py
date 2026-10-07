@@ -744,9 +744,9 @@ def _generar_xml_comprobante_sss(pac, hospital_nombre=None, hospital_refes=None)
 
 <!-- SECCION HISTORICOS -->
 <w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="240" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="333333"/></w:rPr><w:t>• DATOS HISTORICOS ADICIONALES</w:t></w:r></w:p>
-<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="100"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:t>Bajas producidas desde el año 2006 al {fecha_proc}</w:t></w:r></w:p>
+<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="120"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:t>Bajas producidas desde el año 2006 al {fecha_proc}</w:t></w:r></w:p>
 
-<!-- TABLA HISTORICA EXACTA A LA WEB -->
+<!-- LEYENDA OFICIAL SSSALUD -->
 <w:tbl>
     <w:tblPr>
         <w:tblW w:w="9600" w:type="dxa"/><w:jc w:val="center"/>
@@ -755,32 +755,16 @@ def _generar_xml_comprobante_sss(pac, hospital_nombre=None, hospital_refes=None)
             <w:left w:val="none"/>
             <w:bottom w:val="single" w:sz="4" w:space="0" w:color="E0E0E0"/>
             <w:right w:val="none"/>
-            <w:insideH w:val="single" w:sz="4" w:space="0" w:color="EEEEEE"/>
+            <w:insideH w:val="none"/>
             <w:insideV w:val="none"/>
         </w:tblBorders>
     </w:tblPr>
-    <w:tblGrid>
-        <w:gridCol w:w="1200"/>
-        <w:gridCol w:w="1800"/>
-        <w:gridCol w:w="3000"/>
-        <w:gridCol w:w="2000"/>
-        <w:gridCol w:w="1600"/>
-    </w:tblGrid>
-    <!-- Encabezado de columnas -->
+    <w:tblGrid><w:gridCol w:w="9600"/></w:tblGrid>
     <w:tr>
-        <w:tc><w:tcPr><w:tcW w:w="1200" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Obra Social</w:t></w:r></w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="1800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>CUIL Titular</w:t></w:r></w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Tipo Beneficiario</w:t></w:r></w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Fecha Alta/Baja</w:t></w:r></w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="1600" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Motivo</w:t></w:r></w:p></w:tc>
-    </w:tr>
-    <!-- Fila de datos -->
-    <w:tr>
-        <w:tc><w:tcPr><w:tcW w:w="1200" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>{rnos_fmt}</w:t></w:r></w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="1800" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>{cuil}</w:t></w:r></w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>RELACION DE DEPENDENCIA</w:t></w:r></w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>{fecha_alta}/{fecha_proc}</w:t></w:r></w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w="1600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>INFORMADA POR LA O.S.</w:t></w:r></w:p></w:tc>
+        <w:tc>
+            <w:tcPr><w:tcW w:w="9600" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="FAFAFA"/><w:tcMar><w:top w:w="100" w:type="dxa"/><w:bottom w:w="100" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+            <w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:i/><w:sz w:val="16"/><w:color w:val="666666"/></w:rPr><w:t>No registra bajas producidas desde el año 2006 al {fecha_proc}</w:t></w:r></w:p>
+        </w:tc>
     </w:tr>
 </w:tbl>"""
 
@@ -1083,11 +1067,12 @@ def ordenar_pacientes_anexos(pacientes):
     return sorted(pacientes, key=clave_orden)
 
 
-def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospital_nombre=None, hospital_refes=None, hospital_config=None, progress_callback=None):
+def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospital_nombre=None, hospital_refes=None, hospital_config=None, progress_callback=None, incluir_comprobante=True):
     """
     Genera un documento Word único (.docx) con todas las fojas de Anexo II,
     una página completa (encabezado oficial + tabla del paciente) por cada paciente afiliado,
     organizadas por Obra Social (RNOS) y cronológicamente por fecha, separadas por saltos de página.
+    Si incluir_comprobante es True, agrega el Comprobante oficial de SSSalud como página 2 para cada paciente.
     """
     if not pacientes:
         raise ValueError("No se encontraron pacientes afiliados para generar anexos.")
@@ -1159,8 +1144,9 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospit
                     xml_out.write(foja_xml.encode('utf-8'))
 
                     # 2. PÁGINA 2: COMPROBANTE OFICIAL SSSALUD (seguro.sssalud.gob.ar)
-                    comp_xml = _generar_xml_comprobante_sss(pac, h_nom, h_ref)
-                    xml_out.write(comp_xml.encode('utf-8'))
+                    if incluir_comprobante:
+                        comp_xml = _generar_xml_comprobante_sss(pac, h_nom, h_ref)
+                        xml_out.write(comp_xml.encode('utf-8'))
 
                     if progress_callback and (idx % 15 == 0 or idx == total_pac - 1):
                         try:
@@ -1190,10 +1176,10 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospit
         raise
 
 
-def generar_anexos_pdf(pacientes, ruta_salida_pdf, hospital_nombre=None, hospital_refes=None):
+def generar_anexos_pdf(pacientes, ruta_salida_pdf, hospital_nombre=None, hospital_refes=None, incluir_comprobante=True):
     """
     Genera un archivo PDF único masivo con todas las fojas de Anexo II,
-    una página por paciente afiliado, listo para imprimir directamente.
+    una página por paciente afiliado (o 2 si incluir_comprobante es True), listo para imprimir directamente.
     """
     if not pacientes:
         raise ValueError("No se encontraron pacientes afiliados para generar anexos.")
@@ -1205,7 +1191,7 @@ def generar_anexos_pdf(pacientes, ruta_salida_pdf, hospital_nombre=None, hospita
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, PageBreak
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, PageBreak, Spacer
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     except ImportError:
         raise RuntimeError("ReportLab no está disponible. Ejecute: pip install reportlab")
@@ -1382,111 +1368,112 @@ def generar_anexos_pdf(pacientes, ruta_salida_pdf, hospital_nombre=None, hospita
         elements.append(t)
 
         # Comprobante Oficial SSSalud como página 2 para este paciente (Réplica Web)
-        elements.append(PageBreak())
-        
-        # Botón Consultar centrado
-        btn_data = [[P("<b>Consultar</b>", size=9, color=colors.white, align=1)]]
-        t_btn = Table(btn_data, colWidths=[90], rowHeights=[18], style=TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1D6FA5')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-            ('TOPPADDING', (0, 0), (-1, -1), 2),
-        ]))
-        t_btn.hAlign = 'CENTER'
-        elements.append(t_btn)
-        elements.append(Spacer(1, 8))
+        if incluir_comprobante:
+            elements.append(PageBreak())
+            
+            # Botón Consultar centrado
+            btn_data = [[P("<b>Consultar</b>", size=9, bold=True, align=1)]]
+            t_btn = Table(btn_data, colWidths=[90], rowHeights=[18], style=TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1D6FA5')),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+                ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ]))
+            t_btn.hAlign = 'CENTER'
+            elements.append(t_btn)
+            elements.append(Spacer(1, 8))
 
-        fecha_proc_pdf = datetime.today().strftime("%d-%m-%Y")
-        cuil_pdf = pac.get("cuil") or calcular_cuil(dni, pac.get("sexo", "M"))
-        rnos_fmt_pdf = pac.get("rnos_fmt") or formatear_rnos_sssalud(rnos)
-        fecha_alta_pdf = str(pac.get("fecha", "")).strip().replace("/", "-") or "01-07-2023"
-        mes_ant_pdf = pac.get("periodo_declarado") or (date.today().replace(day=1) - timedelta(days=1)).strftime("%m-%Y")
+            fecha_proc_pdf = datetime.today().strftime("%d-%m-%Y")
+            cuil_pdf = pac.get("cuil") or calcular_cuil(dni, pac.get("sexo", "M"))
+            rnos_fmt_pdf = pac.get("rnos_fmt") or formatear_rnos_sssalud(rnos)
+            fecha_alta_pdf = str(pac.get("fecha", "")).strip().replace("/", "-") or "01-07-2023"
+            mes_ant_pdf = pac.get("periodo_declarado") or (date.today().replace(day=1) - timedelta(days=1)).strftime("%m-%Y")
 
-        elements.append(Paragraph(f"<font color='#444444' size='8'>Fecha de actualización: {fecha_proc_pdf}<br/>Fecha de proceso: {fecha_proc_pdf}</font>", ParagraphStyle('RightDates', parent=styles['Normal'], alignment=2, leading=11)))
-        elements.append(Spacer(1, 8))
+            elements.append(Paragraph(f"<font color='#444444' size='8'>Fecha de actualización: {fecha_proc_pdf}<br/>Fecha de proceso: {fecha_proc_pdf}</font>", ParagraphStyle('RightDates', parent=styles['Normal'], alignment=2, leading=11)))
+            elements.append(Spacer(1, 8))
 
-        # Banner Datos de Afiliación Vigente
-        banner_data = [[P("<b>DATOS DE AFILIACION VIGENTE</b>", size=9.5, color=colors.HexColor('#222222'))]]
-        t_banner = Table(banner_data, colWidths=[555.27], rowHeights=[20], style=TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#EEEEEE')),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ]))
-        elements.append(t_banner)
-        elements.append(Spacer(1, 6))
+            # Banner Datos de Afiliación Vigente
+            banner_data = [[P("<b>DATOS DE AFILIACION VIGENTE</b>", size=9.5, bold=True)]]
+            t_banner = Table(banner_data, colWidths=[555.27], rowHeights=[20], style=TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#EEEEEE')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            elements.append(t_banner)
+            elements.append(Spacer(1, 6))
 
-        # Datos personales
-        elements.append(Paragraph("<b>Datos personales</b>", ParagraphStyle('SubSec', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
-        elements.append(Spacer(1, 3))
-        dp_data = [
-            [P("<b>Parentesco</b>", size=8), P("TITULAR", size=8)],
-            [P("<b>CUIL</b>", size=8), P(cuil_pdf, size=8)],
-            [P("<b>Tipo de documento</b>", size=8), P("DOCUMENTO UNICO", size=8)],
-            [P("<b>Número de documento</b>", size=8), P(str(dni), size=8)],
-            [P("<b>Apellido y nombre</b>", size=8), P(str(nombre or ''), size=8)],
-        ]
-        t_dp = Table(dp_data, colWidths=[150, 405.27], rowHeights=[14]*5, style=TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F4F4F4')),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-            ('TOPPADDING', (0, 0), (-1, -1), 1),
-        ]))
-        elements.append(t_dp)
-        elements.append(Spacer(1, 8))
+            # Datos personales
+            elements.append(Paragraph("<b>Datos personales</b>", ParagraphStyle('SubSec', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
+            elements.append(Spacer(1, 3))
+            dp_data = [
+                [P("<b>Parentesco</b>", size=8), P("TITULAR", size=8)],
+                [P("<b>CUIL</b>", size=8), P(cuil_pdf, size=8)],
+                [P("<b>Tipo de documento</b>", size=8), P("DOCUMENTO UNICO", size=8)],
+                [P("<b>Número de documento</b>", size=8), P(str(dni), size=8)],
+                [P("<b>Apellido y nombre</b>", size=8), P(str(nombre or ''), size=8)],
+            ]
+            t_dp = Table(dp_data, colWidths=[150, 405.27], rowHeights=[14]*5, style=TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F4F4F4')),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+                ('TOPPADDING', (0, 0), (-1, -1), 1),
+            ]))
+            elements.append(t_dp)
+            elements.append(Spacer(1, 8))
 
-        # Datos de Afiliación
-        elements.append(Paragraph("<b>Datos de Afiliación</b>", ParagraphStyle('SubSec2', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
-        elements.append(Spacer(1, 3))
-        da_data = [
-            [P("<b>Tipo de beneficiario</b>", size=8), P("RELACION DE DEPENDENCIA", size=8)],
-            [P("<b>Código de Obra Social</b>", size=8), P(rnos_fmt_pdf, size=8, bold=True, color=colors.HexColor('#0B3C5D'))],
-            [P("<b>Denominación Obra Social</b>", size=8), P(str(obra_social or ''), size=8)],
-            [P("<b>Fecha Alta Obra Social</b>", size=8), P(fecha_alta_pdf, size=8)],
-        ]
-        t_da = Table(da_data, colWidths=[150, 405.27], rowHeights=[14]*4, style=TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F4F4F4')),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-            ('TOPPADDING', (0, 0), (-1, -1), 1),
-        ]))
-        elements.append(t_da)
-        elements.append(Spacer(1, 8))
+            # Datos de Afiliación
+            elements.append(Paragraph("<b>Datos de Afiliación</b>", ParagraphStyle('SubSec2', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
+            elements.append(Spacer(1, 3))
+            da_data = [
+                [P("<b>Tipo de beneficiario</b>", size=8), P("RELACION DE DEPENDENCIA", size=8)],
+                [P("<b>Código de Obra Social</b>", size=8), P(rnos_fmt_pdf, size=8, bold=True)],
+                [P("<b>Denominación Obra Social</b>", size=8), P(str(obra_social or ''), size=8)],
+                [P("<b>Fecha Alta Obra Social</b>", size=8), P(fecha_alta_pdf, size=8)],
+            ]
+            t_da = Table(da_data, colWidths=[150, 405.27], rowHeights=[14]*4, style=TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F4F4F4')),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+                ('TOPPADDING', (0, 0), (-1, -1), 1),
+            ]))
+            elements.append(t_da)
+            elements.append(Spacer(1, 8))
 
-        # Datos Declarados por el Empleador
-        elements.append(Paragraph("<b>Datos Declarados por el Empleador</b>", ParagraphStyle('SubSec3', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
-        elements.append(Spacer(1, 3))
-        de_data = [
-            [P("<b>Tipo Beneficiario Declarado</b>", size=8), P("RELACION DE DEPENDENCIA (DDJJ SIJP)", size=8)],
-            [P("<b>Ultimo Período Declarado</b>", size=8), P(mes_ant_pdf, size=8)],
-        ]
-        t_de = Table(de_data, colWidths=[170, 385.27], rowHeights=[14]*2, style=TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-            ('TOPPADDING', (0, 0), (-1, -1), 1),
-        ]))
-        elements.append(t_de)
-        elements.append(Spacer(1, 16))
+            # Datos Declarados por el Empleador
+            elements.append(Paragraph("<b>Datos Declarados por el Empleador</b>", ParagraphStyle('SubSec3', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
+            elements.append(Spacer(1, 3))
+            de_data = [
+                [P("<b>Tipo Beneficiario Declarado</b>", size=8), P("RELACION DE DEPENDENCIA (DDJJ SIJP)", size=8)],
+                [P("<b>Ultimo Período Declarado</b>", size=8), P(mes_ant_pdf, size=8)],
+            ]
+            t_de = Table(de_data, colWidths=[170, 385.27], rowHeights=[14]*2, style=TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+                ('TOPPADDING', (0, 0), (-1, -1), 1),
+            ]))
+            elements.append(t_de)
+            elements.append(Spacer(1, 16))
 
-        # Datos Históricos Adicionales
-        elements.append(Paragraph("<b>• DATOS HISTORICOS ADICIONALES</b>", ParagraphStyle('HistTit', parent=styles['Normal'], alignment=1, fontSize=9, leading=12, textColor=colors.HexColor('#222222'))))
-        elements.append(Paragraph(f"<font color='#555555' size='8'>Bajas producidas desde el año 2006 al {fecha_proc_pdf}</font>", ParagraphStyle('HistSub', parent=styles['Normal'], alignment=1, fontSize=8, leading=11)))
-        elements.append(Spacer(1, 6))
+            # Datos Históricos Adicionales (Opción 1: Leyenda Oficial SSSalud)
+            elements.append(Paragraph("<b>• DATOS HISTORICOS ADICIONALES</b>", ParagraphStyle('HistTit', parent=styles['Normal'], alignment=1, fontSize=9, leading=12, textColor=colors.HexColor('#222222'))))
+            elements.append(Paragraph(f"<font color='#555555' size='8'>Bajas producidas desde el año 2006 al {fecha_proc_pdf}</font>", ParagraphStyle('HistSub', parent=styles['Normal'], alignment=1, fontSize=8, leading=11)))
+            elements.append(Spacer(1, 6))
 
-        hist_data = [
-            [P("<b>Obra Social</b>", size=7.5), P("<b>CUIL Titular</b>", size=7.5), P("<b>Tipo Beneficiario</b>", size=7.5), P("<b>Fecha Alta/Baja</b>", size=7.5), P("<b>Motivo</b>", size=7.5)],
-            [P(rnos_fmt_pdf, size=7.5), P(cuil_pdf, size=7.5), P("RELACION DE DEPENDENCIA", size=7.5), P(f"{fecha_alta_pdf}/{fecha_proc_pdf}", size=7.5), P("INFORMADA POR LA O.S.", size=7.5)],
-        ]
-        t_hist = Table(hist_data, colWidths=[70, 105, 175, 115, 90.27], style=TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
-            ('LINEABOVE', (0, 0), (-1, 0), 0.5, colors.HexColor('#E0E0E0')),
-            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor('#E0E0E0')),
-            ('LINEBELOW', (0, 1), (-1, 1), 0.5, colors.HexColor('#E0E0E0')),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ]))
-        elements.append(t_hist)
+            hist_data = [
+                [Paragraph(f"<i><font color='#666666' size='8'>No registra bajas producidas desde el año 2006 al {fecha_proc_pdf}</font></i>", ParagraphStyle('HistLeyenda', parent=styles['Normal'], alignment=1))]
+            ]
+            t_hist = Table(hist_data, colWidths=[555.27], rowHeights=[22], style=TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FAFAFA')),
+                ('LINEABOVE', (0, 0), (-1, 0), 0.5, colors.HexColor('#E0E0E0')),
+                ('LINEBELOW', (0, 0), (-1, -1), 0.5, colors.HexColor('#E0E0E0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            elements.append(t_hist)
 
         if idx < len(pacientes) - 1:
             elements.append(PageBreak())

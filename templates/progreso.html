@@ -294,19 +294,35 @@
         </div>
 
         <div id="contenedorDescargas" style="display: none; margin-top: 25px; flex-direction: column; gap: 12px;">
-            <a
-                id="botonAnexos"
-                class="boton"
-                style="background: #4f46e5; margin-top: 0; font-size: 15px; font-weight: 700; padding: 14px 20px;"
-                href="/descargar_anexos/{{ id_proceso }}">
-                📄 DESCARGAR ANEXOS II (WORD .DOCX ORDENADOS)
-            </a>
+            <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+                <div style="font-size: 13.5px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 6px;">
+                    <span>📂</span> Fojas de Anexo II en Word (.docx) ordenadas por Obra Social:
+                </div>
+
+                <a
+                    id="botonAnexosConComp"
+                    class="boton"
+                    style="background: #4f46e5; margin-top: 0; font-size: 14px; font-weight: 700; padding: 12px 16px; text-align: left; display: flex; flex-direction: column; gap: 3px;"
+                    href="/descargar_anexos/{{ id_proceso }}?comprobante=1">
+                    <span>📑 DESCARGAR ANEXOS II + COMPROBANTES SSSALUD (.DOCX)</span>
+                    <span style="font-size: 11.5px; font-weight: 400; opacity: 0.9;">2 fojas por paciente (Foja 1 Anexo II + Foja 2 Comprobante Web para frente y dorso)</span>
+                </a>
+
+                <a
+                    id="botonAnexosSolos"
+                    class="boton"
+                    style="background: #334155; margin-top: 0; font-size: 14px; font-weight: 700; padding: 12px 16px; text-align: left; display: flex; flex-direction: column; gap: 3px;"
+                    href="/descargar_anexos/{{ id_proceso }}?comprobante=0">
+                    <span>📄 DESCARGAR SOLO ANEXOS II (.DOCX)</span>
+                    <span style="font-size: 11.5px; font-weight: 400; opacity: 0.9;">1 foja por paciente (Solo formulario oficial Anexo II)</span>
+                </a>
+            </div>
 
             <a
                 id="botonImprimir"
                 class="boton"
                 target="_blank"
-                style="background: #0891b2; margin-top: 0; font-size: 15px; font-weight: 600; padding: 13px 20px;"
+                style="background: #0891b2; margin-top: 0; font-size: 14.5px; font-weight: 600; padding: 13px 20px;"
                 href="/imprimir_anexos/{{ id_proceso }}">
                 🖨️ VER E IMPRIMIR ANEXOS II (VISTA WEB CTRL+P)
             </a>
@@ -314,12 +330,12 @@
             <a
                 id="botonDescarga"
                 class="boton"
-                style="background: #16a34a; margin-top: 0; font-size: 15px; font-weight: 600; padding: 13px 20px;"
+                style="background: #16a34a; margin-top: 0; font-size: 14.5px; font-weight: 600; padding: 13px 20px;"
                 href="/descargar_excel/{{ id_proceso }}">
                 📊 DESCARGAR EXCEL PROCESADO
             </a>
 
-            <div id="infoAnexos" style="text-align: center; font-size: 14px; color: #4b5563; margin-top: 4px;"></div>
+            <div id="infoAnexos" style="text-align: center; font-size: 13.5px; color: #4b5563; margin-top: 4px;"></div>
         </div>
 
     </div>
@@ -484,7 +500,8 @@ function actualizarProgreso() {
             ) {
                 const contenedor = document.getElementById("contenedorDescargas");
                 const botonExcel = document.getElementById("botonDescarga");
-                const botonAnexos = document.getElementById("botonAnexos");
+                const botonAnexosConComp = document.getElementById("botonAnexosConComp");
+                const botonAnexosSolos = document.getElementById("botonAnexosSolos");
                 const infoAnexos = document.getElementById("infoAnexos");
 
                 if (data.archivo) {
@@ -494,9 +511,15 @@ function actualizarProgreso() {
                 }
 
                 if (data.archivo_anexos) {
-                    botonAnexos.href = "/descargar/" + data.archivo_anexos;
+                    botonAnexosConComp.href = "/descargar/" + data.archivo_anexos;
                 } else {
-                    botonAnexos.href = "/descargar_anexos/" + idProceso;
+                    botonAnexosConComp.href = "/descargar_anexos/" + idProceso + "?comprobante=1";
+                }
+
+                if (data.archivo_anexos_solos) {
+                    botonAnexosSolos.href = "/descargar/" + data.archivo_anexos_solos;
+                } else {
+                    botonAnexosSolos.href = "/descargar_anexos/" + idProceso + "?comprobante=0";
                 }
 
                 contenedor.style.display = "flex";
@@ -504,23 +527,15 @@ function actualizarProgreso() {
                 if (data.estado === "terminado") {
                     const hospNom = data.hospital_nombre ? ` (${data.hospital_nombre})` : "";
                     infoAnexos.textContent = "✅ Se completaron y ordenaron " + (data.anexos_generados || data.afiliados || 0) + " fojas oficiales de Anexo II en Word (.docx)" + hospNom + ".";
-                    botonAnexos.textContent = "📄 DESCARGAR ANEXOS II (WORD .DOCX ORDENADOS)";
-                    botonAnexos.style.background = "#4f46e5";
-                    botonAnexos.style.pointerEvents = "auto";
-                    botonAnexos.style.opacity = "1";
+                    botonAnexosConComp.style.pointerEvents = "auto";
+                    botonAnexosConComp.style.opacity = "1";
+                    botonAnexosSolos.style.pointerEvents = "auto";
+                    botonAnexosSolos.style.opacity = "1";
                     return;
                 } else if (data.estado === "generando_anexos") {
                     infoAnexos.textContent = "⏳ " + (data.ultimo_resultado || "Generando fojas de Anexos II en Word...") + " El Excel verificado ya está disponible.";
-                    botonAnexos.textContent = "⏳ EMPAQUETANDO ANEXOS II (" + (data.ultimo_resultado || "Aguarde unos segundos") + ")";
-                    botonAnexos.style.background = "#6366f1";
-                    botonAnexos.style.pointerEvents = "none";
-                    botonAnexos.style.opacity = "0.85";
                 } else if (data.estado === "guardando" || data.estado === "escribiendo_excel") {
                     infoAnexos.textContent = "💾 " + (data.ultimo_resultado || "Guardando archivo Excel...") + " Ya podés descargar el Excel o los Anexos.";
-                    botonAnexos.textContent = "⏳ PREPARANDO DOCUMENTOS WORD...";
-                    botonAnexos.style.background = "#6366f1";
-                    botonAnexos.style.pointerEvents = "none";
-                    botonAnexos.style.opacity = "0.85";
                 } else if (esCompleto) {
                     infoAnexos.textContent = "✅ Consultas finalizadas (" + (data.afiliados || 0) + " afiliados encontrados). Podés descargar el Excel verificado o los Anexos II.";
                     if (data.estado === "consultando") {

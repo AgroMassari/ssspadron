@@ -163,6 +163,10 @@
             padding-bottom: 6px !important;
         }
 
+        .hoja-comprobante.oculta {
+            display: none !important;
+        }
+
         /* ── Estilos de impresión nativa (Ctrl + P) ── */
         @media print {
             body {
@@ -201,11 +205,14 @@
     <div class="barra-accion">
         <div class="barra-titulo">
             <span>📋</span>
-            <span>Anexos II Masivos ({{ total_pacientes }} afiliados)</span>
+            <span id="txtTituloBarra">Anexos II Masivos ({{ total_pacientes }} afiliados • <span id="txtContadorFojas">{{ total_pacientes * 2 }}</span> fojas)</span>
         </div>
-        <div style="display: flex; gap: 12px; align-items: center;">
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button id="btnToggleComp" class="btn-toggle" onclick="toggleComprobantes()" style="background: #334155; color: white; border: 1px solid #475569; padding: 9px 15px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s;">
+                📄 Ocultar Comprobantes (Solo Anexos)
+            </button>
             <button class="btn-imprimir" onclick="window.print()">
-                🖨️ IMPRIMIR TODOS ({{ total_pacientes }} Fojas)
+                🖨️ IMPRIMIR (<span id="txtBtnImprimir">{{ total_pacientes * 2 }}</span> Fojas)
             </button>
             <a href="javascript:history.back()" class="btn-volver">⬅️ Volver</a>
         </div>
@@ -495,36 +502,52 @@
                 </tr>
             </table>
 
-            <!-- Sección Datos Históricos Adicionales -->
+            <!-- Sección Datos Históricos Adicionales (Opción 1: Leyenda Oficial SSSalud) -->
             <div style="text-align: center; margin-top: 30px; margin-bottom: 12px;">
                 <div style="font-weight: bold; font-size: 13px; color: #212529; margin-bottom: 3px;">• DATOS HISTORICOS ADICIONALES</div>
                 <div style="font-size: 12px; color: #555555;">Bajas producidas desde el año 2006 al {{ p.fecha_proc or fecha_actual }}</div>
             </div>
-            <table style="width: 100%; border-collapse: collapse; font-size: 11.5px;">
-                <thead>
-                    <tr style="background: #f8f9fa; border-top: 1px solid #ced4da; border-bottom: 1px solid #ced4da;">
-                        <th style="padding: 6px 8px; text-align: left; font-weight: bold; color: #333333;">Obra Social</th>
-                        <th style="padding: 6px 8px; text-align: left; font-weight: bold; color: #333333;">CUIL Titular</th>
-                        <th style="padding: 6px 8px; text-align: left; font-weight: bold; color: #333333;">Tipo Beneficiario</th>
-                        <th style="padding: 6px 8px; text-align: left; font-weight: bold; color: #333333;">Fecha Alta/Baja</th>
-                        <th style="padding: 6px 8px; text-align: left; font-weight: bold; color: #333333;">Motivo</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr style="border-bottom: 1px solid #e9ecef;">
-                        <td style="padding: 6px 8px; color: #212529;">{{ p.rnos_fmt or p.rnos }}</td>
-                        <td style="padding: 6px 8px; color: #212529;">{{ p.cuil }}</td>
-                        <td style="padding: 6px 8px; color: #212529;">RELACION DE DEPENDENCIA</td>
-                        <td style="padding: 6px 8px; color: #212529;">{{ p.fecha or '01-07-2023' }}/{{ p.fecha_proc or fecha_actual }}</td>
-                        <td style="padding: 6px 8px; color: #212529;">INFORMADA POR LA O.S.</td>
-                    </tr>
-                </tbody>
-            </table>
+            <div style="background: #fafafa; border-top: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; padding: 9px 14px; text-align: center; font-style: italic; color: #666666; font-size: 12px;">
+                No registra bajas producidas desde el año 2006 al {{ p.fecha_proc or fecha_actual }}
+            </div>
 
         </div>
         {% endfor %}
 
     </div>
+
+    <script>
+    let mostrarComprobantes = true;
+    const totalPacientes = {{ total_pacientes }};
+
+    function toggleComprobantes() {
+        mostrarComprobantes = !mostrarComprobantes;
+        const comprobantes = document.querySelectorAll('.hoja-comprobante');
+        const btn = document.getElementById('btnToggleComp');
+        const txtFojas = document.getElementById('txtContadorFojas');
+        const txtBtn = document.getElementById('txtBtnImprimir');
+
+        comprobantes.forEach(el => {
+            if (mostrarComprobantes) {
+                el.classList.remove('oculta');
+            } else {
+                el.classList.add('oculta');
+            }
+        });
+
+        if (mostrarComprobantes) {
+            btn.innerHTML = '📄 Ocultar Comprobantes (Solo Anexos)';
+            btn.style.background = '#334155';
+            if (txtFojas) txtFojas.textContent = totalPacientes * 2;
+            if (txtBtn) txtBtn.textContent = totalPacientes * 2;
+        } else {
+            btn.innerHTML = '📑 Mostrar Comprobantes SSSalud';
+            btn.style.background = '#4f46e5';
+            if (txtFojas) txtFojas.textContent = totalPacientes;
+            if (txtBtn) txtBtn.textContent = totalPacientes;
+        }
+    }
+    </script>
 
 </body>
 </html>
