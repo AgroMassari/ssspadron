@@ -483,8 +483,11 @@ def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, h
             r12_cells[1],
             count=1
         )
-        # Especialidad médica siempre CARDIOLOGIA
-        c3_serv = _formatear_celda_texto(r12_cells[3], "CARDIOLOGIA", font_sz="16")
+        # Especialidad médica
+        esp = str(paciente.get("servicio") or "").strip().upper()
+        if not esp or esp in ["CONSULTA", "CONSULTAS", "CONSULTA MEDICA", "AMBULATORIO", "AMBULATORIA", "GUARDIA", "CONSULTA EXTERNA"]:
+            esp = "CARDIOLOGIA"
+        c3_serv = _formatear_celda_texto(r12_cells[3], esp, font_sz="16")
         filas[12] = filas[12].replace(r12_cells[1], c1_cons, 1).replace(r12_cells[3], c3_serv, 1)
 
     # 5. R13: Diagnóstico en c3
@@ -534,6 +537,7 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
     col_paciente = None
     col_fecha = None
     cols_diagnostico = []
+    col_servicio = None
     col_sexo = None
     col_edad = None
     col_rnos = None
@@ -568,6 +572,8 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
                     col_rnos = c
                 elif any(k in t for k in ["obra social", "cobertura", "prepaga", "o.s."]):
                     col_obra_social = c
+                elif any(k in t for k in ["especialidad", "servicio"]):
+                    col_servicio = c
 
             # Detección inteligente de la columna de fecha de atención/prestación (evitando nacimiento/carga/vencimiento)
             for c, t in row_vals.items():
@@ -668,14 +674,21 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
         nombre_val = str(ws.cell(fila, col_paciente).value or "").strip()
         fecha_val = formatear_fecha(ws.cell(fila, col_fecha).value)
 
-        # Especialidad fijada en CARDIOLOGIA
-        serv_val = "CARDIOLOGIA"
+        # Especialidad médica (toma lo elegido por el usuario o de la columna de servicio)
+        esp_base = str(especialidad_defecto or "CARDIOLOGIA").strip().upper()
+        if not esp_base:
+            esp_base = "CARDIOLOGIA"
+        serv_val = esp_base
+        if col_servicio:
+            raw_s = str(ws.cell(fila, col_servicio).value or "").strip().upper()
+            if raw_s and raw_s not in ["NONE", "NULL", "-", "0", "CONSULTA", "CONSULTAS", "AMBULATORIO", "GUARDIA"]:
+                serv_val = raw_s
 
         # Captura exhaustiva de diagnóstico en todas las columnas candidatas
         diag_val = ""
         for c_diag in cols_diagnostico:
             v = str(ws.cell(fila, c_diag).value or "").strip()
-            if v and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", "CONSULTA", ""]:
+            if v and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", serv_val, "CONSULTA", ""]:
                 if not diag_val:
                     diag_val = v
                 elif len(v) > len(diag_val):
@@ -684,10 +697,10 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
         # Fallback si las columnas candidatas vinieron vacías para este paciente
         if not diag_val:
             for c_scan in range(1, min(ws.max_column + 1, 35)):
-                if c_scan in [col_dni, col_paciente, col_fecha, col_sexo, col_edad, col_rnos, col_obra_social]:
+                if c_scan in [col_dni, col_paciente, col_fecha, col_sexo, col_edad, col_rnos, col_obra_social, col_servicio]:
                     continue
                 v = str(ws.cell(fila, c_scan).value or "").strip()
-                if v and len(v) >= 3 and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", "CONSULTA", "TITULAR", "M", "F", "NO AFILIADO"]:
+                if v and len(v) >= 3 and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", serv_val, "CONSULTA", "TITULAR", "M", "F", "NO AFILIADO"]:
                     diag_val = v
                     break
 

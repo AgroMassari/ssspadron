@@ -558,6 +558,11 @@
                     </div>
                 </div>
 
+                <div style="margin-bottom: 18px; background: var(--surface2); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);">
+                    <label style="font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 6px;">🩺 Especialidad médica por defecto:</label>
+                    <input type="text" name="especialidad" class="input-especialidad" value="CARDIOLOGIA" style="width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-weight: bold; font-size: 0.95rem;">
+                </div>
+
                 <button type="submit" class="btn btn-purple" id="btn-sss">
                     🔎 INICIAR VERIFICACIÓN SSSALUD
                 </button>
@@ -656,7 +661,7 @@
 
                 <div style="margin-bottom: 15px; background: var(--surface2); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);">
                     <label style="font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 6px;">🩺 Especialidad médica por defecto:</label>
-                    <input type="text" name="especialidad" value="CARDIOLOGIA" style="width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-weight: bold; font-size: 0.95rem;">
+                    <input type="text" name="especialidad" class="input-especialidad" value="CARDIOLOGIA" style="width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-weight: bold; font-size: 0.95rem;">
                 </div>
 
                 <button type="submit" class="btn btn-purple" style="width: 100%; font-size: 1rem; padding: 13px 20px; font-weight: 700; letter-spacing: 0.3px;">
@@ -1236,7 +1241,7 @@
 
         btnChatEnviar.addEventListener('click', enviarPregunta);
 
-        // Sincronización y persistencia de Hospital para Anexos II
+        // Sincronización y persistencia de Hospital y Especialidad para Anexos II
         document.addEventListener('DOMContentLoaded', () => {
             const selectores = document.querySelectorAll('.selector-hospital');
             const guardado = localStorage.getItem('hospital_anexo_preferido') || 'san_roque';
@@ -1261,6 +1266,24 @@
                         s.value = nuevoVal;
                         actualizarCamposCustom(s);
                     });
+                });
+            });
+
+            // Sincronización y persistencia de Especialidad
+            const inputsEsp = document.querySelectorAll('.input-especialidad');
+            const espGuardada = localStorage.getItem('especialidad_anexo_preferida');
+            if (espGuardada) {
+                inputsEsp.forEach(inp => inp.value = espGuardada);
+            }
+            inputsEsp.forEach(inp => {
+                inp.addEventListener('input', () => {
+                    const val = inp.value.trim();
+                    if (val) {
+                        localStorage.setItem('especialidad_anexo_preferida', val);
+                        inputsEsp.forEach(o => {
+                            if (o !== inp) o.value = val;
+                        });
+                    }
                 });
             });
         });

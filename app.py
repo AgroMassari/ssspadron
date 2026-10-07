@@ -620,7 +620,8 @@ def procesar_archivo(
     archivo_entrada,
     archivo_salida,
     hospital_nombre=None,
-    hospital_refes=None
+    hospital_refes=None,
+    especialidad="CARDIOLOGIA"
 ):
     estado = obtener_estado_proceso(id_proceso) or {
         "estado": "iniciando",
@@ -933,7 +934,8 @@ def procesar_archivo(
         archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
         cant_anexos = 0
         try:
-            pacientes_afiliados = extraer_pacientes_afiliados_excel(archivo_salida)
+            esp_base = especialidad or estado.get("especialidad", "CARDIOLOGIA")
+            pacientes_afiliados = extraer_pacientes_afiliados_excel(archivo_salida, especialidad_defecto=esp_base)
             if pacientes_afiliados:
                 h_nom = hospital_nombre or estado.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
                 h_ref = hospital_refes or estado.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
@@ -1057,13 +1059,14 @@ def procesar():
     )
 
     # --------------------------------------------------------
-    # RESOLVER HOSPITAL SELECCIONADO
+    # RESOLVER HOSPITAL Y ESPECIALIDAD SELECCIONADOS
     # --------------------------------------------------------
 
     hosp_id = request.form.get("hospital", "san_roque")
     hosp_custom_nom = request.form.get("hospital_nombre_custom", "").strip()
     hosp_custom_ref = request.form.get("hospital_refes_custom", "").strip()
     hosp_info = resolver_hospital(hosp_id, hosp_custom_nom, hosp_custom_ref)
+    esp_req = request.form.get("especialidad", "").strip() or "CARDIOLOGIA"
 
     # --------------------------------------------------------
     # CREAR ESTADO PERSISTENTE
@@ -1088,6 +1091,7 @@ def procesar():
         "hospital_id": hosp_info.get("id", "san_roque"),
         "hospital_nombre": hosp_info["nombre"],
         "hospital_refes": hosp_info["refes"],
+        "especialidad": esp_req,
     }
     guardar_estado_proceso(identificador, nuevo_estado)
 
@@ -1102,7 +1106,8 @@ def procesar():
             archivo_entrada,
             archivo_salida,
             hosp_info["nombre"],
-            hosp_info["refes"]
+            hosp_info["refes"],
+            esp_req
         ),
         daemon=True
     )
@@ -1187,7 +1192,8 @@ def descargar_anexos(id_proceso):
         archivo_salida = RESULT_DIR / estado["archivo"]
         if archivo_salida.exists():
             try:
-                pacientes = extraer_pacientes_afiliados_excel(archivo_salida)
+                esp_base = estado.get("especialidad", "CARDIOLOGIA")
+                pacientes = extraer_pacientes_afiliados_excel(archivo_salida, especialidad_defecto=esp_base)
                 if pacientes:
                     h_nombre = estado.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
                     h_refes = estado.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
@@ -1233,7 +1239,8 @@ def imprimir_anexos(id_proceso):
         return "Archivo procesado no encontrado.", 404
 
     try:
-        pacientes = extraer_pacientes_afiliados_excel(archivo_salida)
+        esp_base = estado.get("especialidad", "CARDIOLOGIA")
+        pacientes = extraer_pacientes_afiliados_excel(archivo_salida, especialidad_defecto=esp_base)
         if not pacientes:
             return "No se encontraron pacientes afiliados para imprimir.", 404
 
