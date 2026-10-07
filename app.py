@@ -111,7 +111,7 @@ COLUMNA_OBRA_SOCIAL = 7
 
 # Concurrencia con Pool de Sesiones Independientes y Base de Datos Local
 NUM_SESSIONS = int(os.environ.get("SSS_NUM_SESSIONS", 4))
-MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 6))
+MAX_WORKERS = int(os.environ.get("SSS_MAX_WORKERS", 4))
 ESPERA_ENTRE_CONSULTAS = float(os.environ.get("SSS_DELAY", 0.25))
 MAX_CONSULTAS_POR_SESION = int(os.environ.get("SSS_MAX_REQS_PER_SESSION", 75))
 CACHE_DNI = {}
@@ -205,10 +205,11 @@ def limpiar_dni(val):
 procesos = {}
 ESTADOS_PROCESOS_DIR = BASE_DIR / "estados_tmp"
 ESTADOS_PROCESOS_DIR.mkdir(exist_ok=True)
+ESTADO_LOCK = threading.Lock()
 
 def guardar_estado_proceso(id_proceso, datos):
-    with CACHE_LOCK:
-        procesos[id_proceso] = datos
+    with ESTADO_LOCK:
+        procesos[id_proceso] = dict(datos)
     try:
         ruta = ESTADOS_PROCESOS_DIR / f"{id_proceso}.json"
         ruta.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
@@ -216,16 +217,16 @@ def guardar_estado_proceso(id_proceso, datos):
         pass
 
 def obtener_estado_proceso(id_proceso):
-    with CACHE_LOCK:
+    with ESTADO_LOCK:
         if id_proceso in procesos:
-            return procesos[id_proceso]
+            return dict(procesos[id_proceso])
     ruta = ESTADOS_PROCESOS_DIR / f"{id_proceso}.json"
     if ruta.exists():
         try:
             d = json.loads(ruta.read_text(encoding="utf-8"))
-            with CACHE_LOCK:
+            with ESTADO_LOCK:
                 procesos[id_proceso] = d
-            return d
+            return dict(d)
         except Exception:
             pass
     return None
@@ -451,18 +452,7 @@ class FastSSSaludClient:
         self.session_pool = queue.Queue()
         for i in range(self.num_sessions):
             worker = SessionWorker(user, password, i + 1)
-            worker.login()
             self.session_pool.put(worker)
-
-        # Fallback usando la librería tradicional si está instalada
-        self._fallback_sss = None
-        if DataBeneficiariosSSSHospital is not None:
-            try:
-                self._fallback_sss = DataBeneficiariosSSSHospital(user=user, password=password)
-                self._fallback_sss.pause_before_requests = 0
-                self._fallback_sss._save_response = lambda filename, resp: None
-            except Exception:
-                pass
 
     def query(self, dni):
         dni_str = str(dni).strip()
@@ -923,11 +913,16 @@ def procesar_archivo(
             if pacientes_afiliados:
                 h_nom = hospital_nombre or estado.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
                 h_ref = hospital_refes or estado.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
+                def progreso_anexo(actual, total_anx):
+                    estado["ultimo_resultado"] = f"Generando foja {actual} de {total_anx} en Word..."
+                    guardar_estado_proceso(id_proceso, estado)
+
                 cant_anexos = generar_anexos_docx(
                     pacientes_afiliados,
                     archivo_anexos,
                     hospital_nombre=h_nom,
-                    hospital_refes=h_ref
+                    hospital_refes=h_ref,
+                    progress_callback=progreso_anexo
                 )
                 print(f"Se generaron exitosamente {cant_anexos} Anexos II en Word (.docx) para {h_nom}")
         except Exception as e_anexos:

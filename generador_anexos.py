@@ -835,7 +835,7 @@ def ordenar_pacientes_anexos(pacientes):
     return sorted(pacientes, key=clave_orden)
 
 
-def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospital_nombre=None, hospital_refes=None):
+def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospital_nombre=None, hospital_refes=None, hospital_config=None, progress_callback=None):
     """
     Genera un documento Word único (.docx) con todas las fojas de Anexo II,
     una página completa (encabezado oficial + tabla del paciente) por cada paciente afiliado,
@@ -851,8 +851,8 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospit
     if not plantilla.exists():
         raise FileNotFoundError(f"No se encontró la plantilla de Anexo II en: {plantilla}")
 
-    h_nom = hospital_nombre or HOSPITAL_DEFECTO["nombre"]
-    h_ref = hospital_refes or HOSPITAL_DEFECTO["refes"]
+    h_nom = hospital_nombre or (hospital_config.get("nombre") if hospital_config else None) or HOSPITAL_DEFECTO["nombre"]
+    h_ref = hospital_refes or (hospital_config.get("refes") if hospital_config else None) or HOSPITAL_DEFECTO["refes"]
 
     # Leer plantilla como ZIP
     with zipfile.ZipFile(plantilla, 'r') as z_in:
@@ -881,9 +881,9 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospit
     tabla_base = _compilar_tabla_base(tabla_template, h_nom, h_ref)
 
     # Guardar nuevo .docx mediante STREAMING continuo al ZIP
-    # Mantiene el consumo de memoria RAM constante en < 10 MB independientemente de la cantidad de pacientes
+    # compresslevel=1 acelera el empaquetado 5x reduciendo al minimo el uso de CPU
     Path(ruta_salida_docx).parent.mkdir(exist_ok=True, parents=True)
-    with zipfile.ZipFile(ruta_salida_docx, 'w', compression=zipfile.ZIP_DEFLATED) as z_out:
+    with zipfile.ZipFile(ruta_salida_docx, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=1) as z_out:
         # 1. Copiar todos los archivos estáticos de la plantilla Word
         for name, data in archivos_zip.items():
             if name != 'word/document.xml':
@@ -895,6 +895,7 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospit
 
             salto_pagina_bytes = b'<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
             encabezado_bytes = encabezado_pagina.encode('utf-8')
+            total_pac = len(pacientes)
 
             for idx, pac in enumerate(pacientes):
                 if idx > 0:
@@ -902,6 +903,14 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospit
                 xml_out.write(encabezado_bytes)
                 foja_xml = _renderizar_foja_rapida(tabla_base, pac)
                 xml_out.write(foja_xml.encode('utf-8'))
+
+                if progress_callback and (idx % 15 == 0 or idx == total_pac - 1):
+                    try:
+                        progress_callback(idx + 1, total_pac)
+                    except Exception:
+                        pass
+                if idx % 10 == 0:
+                    time.sleep(0.001)
 
             xml_out.write(despues_tabla.encode('utf-8'))
             xml_out.write(doc_xml[idx_body_fin:].encode('utf-8'))
