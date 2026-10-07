@@ -410,6 +410,89 @@
             </table>
 
         </div>
+
+        <!-- PÁGINA 2: COMPROBANTE OFICIAL SSSALUD REPLICANDO EL PORTAL HPGD -->
+        <div class="hoja-anexo hoja-comprobante">
+            <div style="text-align: center; margin-bottom: 25px;">
+                <h2 style="font-size: 20px; color: #0b3c5d; margin-bottom: 4px; font-weight: 800; text-transform: uppercase;">Superintendencia de Servicios de Salud</h2>
+                <div style="font-size: 13px; color: #555; margin-bottom: 8px;">MINISTERIO DE SALUD - PRESIDENCIA DE LA NACIÓN</div>
+                <div style="font-size: 14px; font-weight: bold; color: #1d2731; border-top: 1px solid #0b3c5d; border-bottom: 1px solid #0b3c5d; padding: 6px 0; display: inline-block; width: 100%;">
+                    CONSULTA OFICIAL DE PADRÓN DE BENEFICIARIOS (HPGD - DEC. 939/00)
+                </div>
+            </div>
+
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #0b3c5d; margin-bottom: 25px;">
+                <thead>
+                    <tr style="background: #0b3c5d; color: white;">
+                        <th colspan="2" style="padding: 10px; font-size: 13px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px;">
+                            Datos de Afiliación Vigente - Sistema SSSalud (seguro.sssalud.gob.ar)
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="width: 32%; background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Tipo y N° Documento:</td>
+                        <td style="padding: 10px 14px; font-weight: bold; font-size: 14px; color: #000;">DNI {{ p.dni }}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Apellido y Nombre:</td>
+                        <td style="padding: 10px 14px; font-weight: bold; font-size: 14px; color: #000;">{{ p.nombre }}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Sexo / Edad:</td>
+                        <td style="padding: 10px 14px; font-size: 13px; color: #000;">{{ 'FEMENINO' if p.sexo and p.sexo.upper().startswith('F') else ('MASCULINO' if p.sexo and p.sexo.upper().startswith('M') else p.sexo) }} | {{ p.edad }} años</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Estado de Cobertura:</td>
+                        <td style="padding: 10px 14px; font-weight: bold; font-size: 13px; color: #166534;">
+                            <span style="background: #dcfce7; padding: 3px 8px; border-radius: 4px; border: 1px solid #86efac;">● AFILIACIÓN VIGENTE - CON COBERTURA</span>
+                        </td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Código RNOS / RNAS:</td>
+                        <td style="padding: 10px 14px; font-weight: bold; font-size: 15px; color: #0b3c5d;">{{ p.rnos }}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Agente del Seguro de Salud:</td>
+                        <td style="padding: 10px 14px; font-weight: bold; font-size: 14px; color: #000;">{{ p.obra_social }}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Tipo de Beneficiario:</td>
+                        <td style="padding: 10px 14px; font-size: 13px; color: #000;">TITULAR / BENEFICIARIO DIRECTO</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Efector de Salud (HPGD):</td>
+                        <td style="padding: 10px 14px; font-size: 13px; color: #000;">{{ hospital_nombre or 'NUEVO HOSPITAL SAN ROQUE' }} (REFES: {{ hospital_refes or '10140142131256' }})</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Fecha de Prestación Médica:</td>
+                        <td style="padding: 10px 14px; font-size: 13px; color: #000;">{{ p.fecha }}</td>
+                    </tr>
+                    <tr>
+                        <td style="background: #f4f6f9; padding: 10px 14px; font-weight: bold; font-size: 13px; color: #333;">Constancia / Comprobante:</td>
+                        <td style="padding: 10px 14px; font-size: 12px; color: #555;">SSS-HPGD-{{ p.dni }} | Validado para Facturación HPGD</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 6px; padding: 12px 16px; margin-bottom: 60px;">
+                <div style="font-weight: bold; font-size: 11px; color: #1e293b; margin-bottom: 4px;">MARCO LEGAL Y CONSTANCIA HPGD:</div>
+                <div style="font-size: 11px; color: #475569; line-height: 1.5;">
+                    El presente comprobante oficial certifica la cobertura activa y empadronamiento del beneficiario ante el Sistema Nacional del Seguro de Salud según los registros de la Superintendencia de Servicios de Salud. Válido para su anexión a la foja oficial de Anexo II (Res. 1610/03 SSSALUD) para el cobro y recupero de prestaciones en Hospitales Públicos de Gestión Descentralizada (Decreto 939/00).
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-around; margin-top: auto; padding-bottom: 40px;">
+                <div style="text-align: center; width: 220px;">
+                    <div style="border-top: 1px dotted #64748b; margin-bottom: 6px;"></div>
+                    <div style="font-size: 11px; font-weight: bold; color: #334155;">Mesa de Entradas / Facturación HPGD</div>
+                </div>
+                <div style="text-align: center; width: 220px;">
+                    <div style="border-top: 1px dotted #64748b; margin-bottom: 6px;"></div>
+                    <div style="font-size: 11px; font-weight: bold; color: #334155;">Sello de Verificación Padronal SSSalud</div>
+                </div>
+            </div>
+        </div>
         {% endfor %}
 
     </div>
