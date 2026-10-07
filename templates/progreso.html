@@ -504,11 +504,23 @@ function actualizarProgreso() {
                 if (data.estado === "terminado") {
                     const hospNom = data.hospital_nombre ? ` (${data.hospital_nombre})` : "";
                     infoAnexos.textContent = "✅ Se completaron y ordenaron " + (data.anexos_generados || data.afiliados || 0) + " fojas oficiales de Anexo II en Word (.docx)" + hospNom + ".";
+                    botonAnexos.textContent = "📄 DESCARGAR ANEXOS II (WORD .DOCX ORDENADOS)";
+                    botonAnexos.style.background = "#4f46e5";
+                    botonAnexos.style.pointerEvents = "auto";
+                    botonAnexos.style.opacity = "1";
                     return;
                 } else if (data.estado === "generando_anexos") {
-                    infoAnexos.textContent = "⏳ " + (data.ultimo_resultado || "Generando fojas de Anexos II en Word...") + " El Excel verificado ya está listo para descargar.";
+                    infoAnexos.textContent = "⏳ " + (data.ultimo_resultado || "Generando fojas de Anexos II en Word...") + " El Excel verificado ya está disponible.";
+                    botonAnexos.textContent = "⏳ EMPAQUETANDO ANEXOS II (" + (data.ultimo_resultado || "Aguarde unos segundos") + ")";
+                    botonAnexos.style.background = "#6366f1";
+                    botonAnexos.style.pointerEvents = "none";
+                    botonAnexos.style.opacity = "0.85";
                 } else if (data.estado === "guardando" || data.estado === "escribiendo_excel") {
                     infoAnexos.textContent = "💾 " + (data.ultimo_resultado || "Guardando archivo Excel...") + " Ya podés descargar el Excel o los Anexos.";
+                    botonAnexos.textContent = "⏳ PREPARANDO DOCUMENTOS WORD...";
+                    botonAnexos.style.background = "#6366f1";
+                    botonAnexos.style.pointerEvents = "none";
+                    botonAnexos.style.opacity = "0.85";
                 } else if (esCompleto) {
                     infoAnexos.textContent = "✅ Consultas finalizadas (" + (data.afiliados || 0) + " afiliados encontrados). Podés descargar el Excel verificado o los Anexos II.";
                     if (data.estado === "consultando") {

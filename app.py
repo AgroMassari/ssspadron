@@ -890,12 +890,15 @@ def procesar_archivo(
                         print(f"Error escribiendo Obra Social fila {fila}: {e_o}")
 
         # ----------------------------------------------------
-        # 7. GUARDADO FINAL DE EXCEL
+        # 7. GUARDADO FINAL DE EXCEL ATÓMICO
         # ----------------------------------------------------
         estado["estado"] = "guardando"
         estado["ultimo_resultado"] = "Guardando archivo Excel en el servidor..."
         guardar_estado_proceso(id_proceso, estado)
-        wb.save(archivo_salida)
+
+        archivo_salida_path = Path(archivo_salida)
+        archivo_salida_tmp = archivo_salida_path.with_suffix(f"{archivo_salida_path.suffix}.tmp_{uuid.uuid4().hex[:8]}")
+        wb.save(archivo_salida_tmp)
         try:
             wb.close()
             del wb
@@ -904,8 +907,15 @@ def procesar_archivo(
         import gc
         gc.collect()
 
+        if archivo_salida_path.exists():
+            try:
+                archivo_salida_path.unlink()
+            except Exception:
+                pass
+        archivo_salida_tmp.replace(archivo_salida_path)
+
         # El Excel ya está 100% guardado y disponible para descarga inmediata
-        estado["archivo"] = Path(archivo_salida).name
+        estado["archivo"] = archivo_salida_path.name
         estado["procesadas"] = total
         estado["porcentaje"] = 100
         estado["estado"] = "generando_anexos"
@@ -1168,14 +1178,20 @@ def descargar(nombre):
 
 @app.route("/descargar_excel/<id_proceso>")
 def descargar_excel_por_id(id_proceso):
-    estado = obtener_estado_proceso(id_proceso)
-    if estado and estado.get("archivo"):
-        archivo = RESULT_DIR / estado["archivo"]
-        if archivo.exists():
-            return send_file(archivo, as_attachment=True)
-    for p in RESULT_DIR.glob(f"*{id_proceso}*.xlsx"):
-        if p.exists():
-            return send_file(p, as_attachment=True)
+    for _ in range(40):
+        estado = obtener_estado_proceso(id_proceso)
+        if estado and estado.get("archivo"):
+            archivo = RESULT_DIR / estado["archivo"]
+            if archivo.exists():
+                return send_file(archivo, as_attachment=True)
+        for p in RESULT_DIR.glob(f"*{id_proceso}*.xlsx"):
+            if p.exists() and ".tmp_" not in p.name:
+                return send_file(p, as_attachment=True)
+        if estado and estado.get("estado") in ["guardando", "escribiendo_excel"]:
+            time.sleep(0.5)
+        else:
+            break
+
 
     # Reconstrucción instantánea de contingencia desde SQLite
     for entrada in UPLOAD_DIR.glob(f"*{id_proceso}*"):
@@ -1233,6 +1249,21 @@ def descargar_excel_por_id(id_proceso):
 @app.route("/descargar_anexos/<id_proceso>")
 def descargar_anexos(id_proceso):
     archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
+
+    # Si se está generando en segundo plano en este momento, esperar unos segundos a que termine el empaquetado
+    for _ in range(40):
+        if archivo_anexos.exists():
+            return send_file(
+                archivo_anexos,
+                as_attachment=True,
+                download_name=f"Anexos_II_{id_proceso[:8]}.docx"
+            )
+        estado = obtener_estado_proceso(id_proceso)
+        if estado and estado.get("estado") in ["guardando", "generando_anexos", "escribiendo_excel"]:
+            time.sleep(0.5)
+        else:
+            break
+
     if archivo_anexos.exists():
         return send_file(
             archivo_anexos,

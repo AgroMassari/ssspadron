@@ -1,4 +1,5 @@
 import re
+import uuid
 import zipfile
 import xml.sax.saxutils as saxutils
 from pathlib import Path
@@ -879,42 +880,61 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospit
     # Compilar plantilla base una sola vez (hospital emisor y checkboxes fijos)
     tabla_base = _compilar_tabla_base(tabla_template, h_nom, h_ref)
 
-    # Guardar nuevo .docx mediante STREAMING continuo al ZIP
-    # compresslevel=1 acelera el empaquetado 5x reduciendo al minimo el uso de CPU
-    Path(ruta_salida_docx).parent.mkdir(exist_ok=True, parents=True)
-    with zipfile.ZipFile(ruta_salida_docx, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=1) as z_out:
-        # 1. Copiar todos los archivos estáticos de la plantilla Word
-        for name, data in archivos_zip.items():
-            if name != 'word/document.xml':
-                z_out.writestr(name, data)
+    # Guardar nuevo .docx mediante STREAMING continuo al ZIP atómico
+    # Se genera en un archivo temporal .tmp y se renombra solo cuando el ZIP está 100% cerrado y válido,
+    # impidiendo que descargas concurrentes lean un archivo a medio escribir.
+    ruta_salida = Path(ruta_salida_docx)
+    ruta_salida.parent.mkdir(exist_ok=True, parents=True)
+    ruta_tmp = ruta_salida.with_suffix(f"{ruta_salida.suffix}.tmp_{uuid.uuid4().hex[:8]}")
 
-        # 2. Escribir word/document.xml directamente en el stream del archivo ZIP
-        with z_out.open('word/document.xml', 'w') as xml_out:
-            xml_out.write(doc_xml[:idx_body_inicio + 8].encode('utf-8'))
+    try:
+        with zipfile.ZipFile(ruta_tmp, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=1) as z_out:
+            # 1. Copiar todos los archivos estáticos de la plantilla Word
+            for name, data in archivos_zip.items():
+                if name != 'word/document.xml':
+                    z_out.writestr(name, data)
 
-            salto_pagina_bytes = b'<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
-            encabezado_bytes = encabezado_pagina.encode('utf-8')
-            total_pac = len(pacientes)
+            # 2. Escribir word/document.xml directamente en el stream del archivo ZIP
+            with z_out.open('word/document.xml', 'w') as xml_out:
+                xml_out.write(doc_xml[:idx_body_inicio + 8].encode('utf-8'))
 
-            for idx, pac in enumerate(pacientes):
-                if idx > 0:
-                    xml_out.write(salto_pagina_bytes)
-                xml_out.write(encabezado_bytes)
-                foja_xml = _renderizar_foja_rapida(tabla_base, pac)
-                xml_out.write(foja_xml.encode('utf-8'))
+                salto_pagina_bytes = b'<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+                encabezado_bytes = encabezado_pagina.encode('utf-8')
+                total_pac = len(pacientes)
 
-                if progress_callback and (idx % 15 == 0 or idx == total_pac - 1):
-                    try:
-                        progress_callback(idx + 1, total_pac)
-                    except Exception:
-                        pass
-                if idx % 10 == 0:
-                    time.sleep(0.001)
+                for idx, pac in enumerate(pacientes):
+                    if idx > 0:
+                        xml_out.write(salto_pagina_bytes)
+                    xml_out.write(encabezado_bytes)
+                    foja_xml = _renderizar_foja_rapida(tabla_base, pac)
+                    xml_out.write(foja_xml.encode('utf-8'))
 
-            xml_out.write(despues_tabla.encode('utf-8'))
-            xml_out.write(doc_xml[idx_body_fin:].encode('utf-8'))
+                    if progress_callback and (idx % 15 == 0 or idx == total_pac - 1):
+                        try:
+                            progress_callback(idx + 1, total_pac)
+                        except Exception:
+                            pass
+                    if idx % 10 == 0:
+                        time.sleep(0.001)
 
-    return len(pacientes)
+                xml_out.write(despues_tabla.encode('utf-8'))
+                xml_out.write(doc_xml[idx_body_fin:].encode('utf-8'))
+
+        # Una vez cerrado el ZIP y verificado su fin de archivo, mover a la ruta final
+        if ruta_salida.exists():
+            try:
+                ruta_salida.unlink()
+            except Exception:
+                pass
+        ruta_tmp.replace(ruta_salida)
+        return len(pacientes)
+    except Exception:
+        if ruta_tmp.exists():
+            try:
+                ruta_tmp.unlink()
+            except Exception:
+                pass
+        raise
 
 
 def generar_anexos_pdf(pacientes, ruta_salida_pdf, hospital_nombre=None, hospital_refes=None):
