@@ -474,14 +474,13 @@ def _compilar_tabla_base(tabla_template, hospital_nombre=None, hospital_refes=No
         c3_diag = _formatear_celda_texto(r13_cells[3], "___PAC_DIAGNOSTICO___", font_sz="15")
         filas[13] = filas[13].replace(r13_cells[3], c3_diag, 1)
 
-    # 7. Casilla de Internación SIEMPRE vacía (sin 'X')
+    # 7. Casilla de Internación SIEMPRE vacía (sin 'X' y con XML válido)
     for r_i, f_xml in enumerate(filas):
         if re.search(r'Internaci[oó]n', f_xml, re.IGNORECASE):
             r_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', f_xml)
             if len(r_cells) >= 2:
-                c1_sin_x = re.sub(r'<w:r[\s\S]*?<w:t[^>]*>\s*X\s*</w:t>[\s\S]*?</w:r>', r'', r_cells[1], flags=re.IGNORECASE)
-                c1_sin_x = re.sub(r'<w:t[^>]*>\s*X\s*</w:t>', r'', c1_sin_x, flags=re.IGNORECASE)
-                filas[r_i] = filas[r_i].replace(r_cells[1], c1_sin_x, 1)
+                c1_vacia = '<w:tc><w:tcPr><w:tcW w:w="410" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:pStyle w:val="TableParagraph"/><w:jc w:val="center"/></w:pPr></w:p></w:tc>'
+                filas[r_i] = filas[r_i].replace(r_cells[1], c1_vacia, 1)
 
     # 8. R21: Obra Social en c0, RNAS en c1
     r21_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[21])
