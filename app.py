@@ -1353,12 +1353,20 @@ def imprimir_anexos(id_proceso):
         h_nombre = estado.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
         h_refes = estado.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
 
+        hoy = date.today()
+        fecha_act_str = hoy.strftime("%d-%m-%Y")
+        primer_dia_este_mes = hoy.replace(day=1)
+        ultimo_dia_mes_ant = primer_dia_este_mes - timedelta(days=1)
+        per_dec_str = ultimo_dia_mes_ant.strftime("%m-%Y")
+
         return render_template(
             "imprimir_anexos.html",
             pacientes=pacientes,
             total_pacientes=len(pacientes),
             hospital_nombre=h_nombre,
-            hospital_refes=h_refes
+            hospital_refes=h_refes,
+            fecha_actual=fecha_act_str,
+            periodo_declarado=per_dec_str
         )
     except Exception as e:
         return f"Error cargando fojas para impresión: {e}", 500
@@ -1518,12 +1526,20 @@ def imprimir_anexos_directo():
             <a href="/">Volver al inicio</a>
             """, 200
 
+        hoy = date.today()
+        fecha_act_str = hoy.strftime("%d-%m-%Y")
+        primer_dia_este_mes = hoy.replace(day=1)
+        ultimo_dia_mes_ant = primer_dia_este_mes - timedelta(days=1)
+        per_dec_str = ultimo_dia_mes_ant.strftime("%m-%Y")
+
         return render_template(
             "imprimir_anexos.html",
             pacientes=pacientes,
             total_pacientes=len(pacientes),
             hospital_nombre=hosp_info["nombre"],
-            hospital_refes=hosp_info["refes"]
+            hospital_refes=hosp_info["refes"],
+            fecha_actual=fecha_act_str,
+            periodo_declarado=per_dec_str
         )
     except Exception as e:
         import traceback

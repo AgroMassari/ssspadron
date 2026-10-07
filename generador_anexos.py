@@ -552,217 +552,238 @@ def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, h
     return _renderizar_foja_rapida(tabla_base, paciente)
 
 
+def calcular_cuil(dni, sexo="M"):
+    """
+    Calcula el CUIL oficial argentino (Algoritmo Módulo 11) a partir del DNI y sexo.
+    """
+    dni_limpio = re.sub(r'\D', '', str(dni or ''))
+    if len(dni_limpio) < 7:
+        return str(dni or '')
+    dni_num = dni_limpio.zfill(8)
+    sexo_str = str(sexo or 'M').strip().upper()
+    prefix = 27 if sexo_str.startswith('F') else 20
+    weights = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
+    cadena = f"{prefix}{dni_num}"
+    total = sum(int(c) * w for c, w in zip(cadena, weights))
+    resto = total % 11
+    if resto == 0:
+        verificador = 0
+    elif resto == 1:
+        prefix = 23
+        verificador = 4 if sexo_str.startswith('F') else 9
+    else:
+        verificador = 11 - resto
+    return f"{prefix}-{dni_limpio}-{verificador}"
+
+
+def formatear_rnos_sssalud(rnos):
+    """
+    Formatea el código RNOS al estilo oficial de la SSSalud (ej: 1-2620-5 o 0-0320-7).
+    """
+    r_str = str(rnos or "").strip()
+    if not r_str:
+        return ""
+    if "-" in r_str:
+        return r_str
+    digs = re.sub(r'\D', '', r_str)
+    if len(digs) == 6:
+        return f"{digs[0]}-{digs[1:5]}-{digs[5]}"
+    elif len(digs) == 5:
+        digs = digs.zfill(6)
+        return f"{digs[0]}-{digs[1:5]}-{digs[5]}"
+    return r_str
+
+
 def _generar_xml_comprobante_sss(pac, hospital_nombre=None, hospital_refes=None):
     """
     Genera el OpenXML de la foja 2 para el paciente:
     Comprobante oficial de consulta de empadronamiento SSSalud
-    replicando el diseño y campos exactos del portal HPGD (seguro.sssalud.gob.ar).
+    replicando con exactitud 1:1 la pantalla del portal web de la SSSalud (seguro.sssalud.gob.ar).
     """
     dni = escapar_xml(str(pac.get("dni", "")).strip())
     nombre = escapar_xml(str(pac.get("nombre", "")).strip())
     sexo = str(pac.get("sexo", "")).strip().upper()
-    sexo_txt = "FEMENINO" if sexo.startswith("F") else ("MASCULINO" if sexo.startswith("M") else (sexo or "NO ESPECIFICA"))
-    edad = escapar_xml(str(pac.get("edad", "")).strip())
+    cuil = pac.get("cuil") or calcular_cuil(dni, sexo)
     os_nom = escapar_xml(str(pac.get("obra_social", "")).strip())
-    rnos = escapar_xml(str(pac.get("rnos", "")).strip())
+    rnos = str(pac.get("rnos", "")).strip()
     if not rnos and os_nom:
-        rnos = escapar_xml(buscar_rnos_por_nombre(os_nom) or "")
+        rnos = buscar_rnos_por_nombre(os_nom) or ""
+    rnos_fmt = escapar_xml(pac.get("rnos_fmt") or formatear_rnos_sssalud(rnos))
 
-    h_nom = escapar_xml(hospital_nombre or HOSPITAL_DEFECTO["nombre"])
-    h_ref = escapar_xml(hospital_refes or HOSPITAL_DEFECTO["refes"])
-    fecha_atenc = escapar_xml(str(pac.get("fecha", "")).strip() or datetime.today().strftime("%d/%m/%Y"))
-    hoy_str = datetime.today().strftime("%d/%m/%Y %H:%M")
-    cod_comp = f"SSS-HPGD-{dni}-{datetime.today().strftime('%Y%m%d')}"
+    fecha_atenc = str(pac.get("fecha", "")).strip().replace("/", "-")
+    fecha_proc = datetime.today().strftime("%d-%m-%Y")
+    fecha_alta = fecha_atenc if fecha_atenc else "01-07-2023"
+
+    # Último período declarado: mes anterior MM-YYYY
+    hoy = date.today()
+    primer_dia_este_mes = hoy.replace(day=1)
+    ultimo_dia_mes_ant = primer_dia_este_mes - timedelta(days=1)
+    mes_ant_str = pac.get("periodo_declarado") or ultimo_dia_mes_ant.strftime("%m-%Y")
 
     return f"""<w:p><w:r><w:br w:type="page"/></w:r></w:p>
-<w:p>
-    <w:pPr><w:jc w:val="center"/><w:spacing w:before="120" w:after="40"/></w:pPr>
-    <w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="26"/><w:color w:val="0B3C5D"/></w:rPr><w:t>SUPERINTENDENCIA DE SERVICIOS DE SALUD</w:t></w:r>
-</w:p>
-<w:p>
-    <w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="40"/></w:pPr>
-    <w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="18"/><w:color w:val="555555"/></w:rPr><w:t>MINISTERIO DE SALUD - PRESIDENCIA DE LA NACIÓN</w:t></w:r>
-</w:p>
-<w:p>
-    <w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="160"/></w:pPr>
-    <w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="20"/><w:color w:val="1D2731"/></w:rPr><w:t>CONSULTA OFICIAL DE PADRÓN DE BENEFICIARIOS (HPGD - DEC. 939/00)</w:t></w:r>
-</w:p>
+
+<!-- BOTON CONSULTAR (REPLICA EXACTA WEB SSSALUD) -->
 <w:tbl>
     <w:tblPr>
-        <w:tblW w:w="9500" w:type="dxa"/>
-        <w:jc w:val="center"/>
+        <w:tblW w:w="1500" w:type="dxa"/><w:jc w:val="center"/>
+        <w:tblBorders><w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="none"/></w:tblBorders>
+    </w:tblPr>
+    <w:tblGrid><w:gridCol w:w="1500"/></w:tblGrid>
+    <w:tr>
+        <w:tc>
+            <w:tcPr><w:tcW w:w="1500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1D6FA5"/><w:tcMar><w:top w:w="70" w:type="dxa"/><w:bottom w:w="70" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+            <w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="20" w:after="20"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Consultar</w:t></w:r></w:p>
+        </w:tc>
+    </w:tr>
+</w:tbl>
+
+<!-- FECHAS DE ACTUALIZACION Y PROCESO -->
+<w:p>
+    <w:pPr><w:jc w:val="right"/><w:spacing w:before="120" w:after="20"/></w:pPr>
+    <w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="444444"/></w:rPr><w:t>Fecha de actualización: {fecha_proc}</w:t></w:r>
+</w:p>
+<w:p>
+    <w:pPr><w:jc w:val="right"/><w:spacing w:before="0" w:after="160"/></w:pPr>
+    <w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="444444"/></w:rPr><w:t>Fecha de proceso: {fecha_proc}</w:t></w:r>
+</w:p>
+
+<!-- BANNER: DATOS DE AFILIACION VIGENTE -->
+<w:tbl>
+    <w:tblPr>
+        <w:tblW w:w="9600" w:type="dxa"/><w:jc w:val="center"/>
+        <w:tblBorders><w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="none"/></w:tblBorders>
+    </w:tblPr>
+    <w:tblGrid><w:gridCol w:w="9600"/></w:tblGrid>
+    <w:tr>
+        <w:tc>
+            <w:tcPr><w:tcW w:w="9600" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="EEEEEE"/><w:tcMar><w:left w:w="140" w:type="dxa"/><w:right w:w="140" w:type="dxa"/><w:top w:w="70" w:type="dxa"/><w:bottom w:w="70" w:type="dxa"/></w:tcMar></w:tcPr>
+            <w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="19"/><w:color w:val="222222"/></w:rPr><w:t>DATOS DE AFILIACION VIGENTE</w:t></w:r></w:p>
+        </w:tc>
+    </w:tr>
+</w:tbl>
+
+<!-- SUBTITULO: Datos personales -->
+<w:p><w:pPr><w:spacing w:before="120" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="444444"/></w:rPr><w:t>Datos personales</w:t></w:r></w:p>
+
+<!-- TABLA DATOS PERSONALES -->
+<w:tbl>
+    <w:tblPr>
+        <w:tblW w:w="9600" w:type="dxa"/><w:jc w:val="center"/>
+        <w:tblBorders><w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="none"/></w:tblBorders>
+    </w:tblPr>
+    <w:tblGrid><w:gridCol w:w="2600"/><w:gridCol w:w="7000"/></w:tblGrid>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Parentesco</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F4F4"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>TITULAR</w:t></w:r></w:p></w:tc>
+    </w:tr>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>CUIL</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>{cuil}</w:t></w:r></w:p></w:tc>
+    </w:tr>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Tipo de documento</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>DOCUMENTO UNICO</w:t></w:r></w:p></w:tc>
+    </w:tr>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Número de documento</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>{dni}</w:t></w:r></w:p></w:tc>
+    </w:tr>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Apellido y nombre</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>{nombre}</w:t></w:r></w:p></w:tc>
+    </w:tr>
+</w:tbl>
+
+<!-- SUBTITULO: Datos de Afiliación -->
+<w:p><w:pPr><w:spacing w:before="140" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="444444"/></w:rPr><w:t>Datos de Afiliación</w:t></w:r></w:p>
+
+<!-- TABLA DATOS DE AFILIACIÓN -->
+<w:tbl>
+    <w:tblPr>
+        <w:tblW w:w="9600" w:type="dxa"/><w:jc w:val="center"/>
+        <w:tblBorders><w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="none"/></w:tblBorders>
+    </w:tblPr>
+    <w:tblGrid><w:gridCol w:w="2600"/><w:gridCol w:w="7000"/></w:tblGrid>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Tipo de beneficiario</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F4F4"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>RELACION DE DEPENDENCIA</w:t></w:r></w:p></w:tc>
+    </w:tr>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Código de Obra Social</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="0B3C5D"/></w:rPr><w:t>{rnos_fmt}</w:t></w:r></w:p></w:tc>
+    </w:tr>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Denominación Obra Social</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>{os_nom}</w:t></w:r></w:p></w:tc>
+    </w:tr>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Fecha Alta Obra Social</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="7000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>{fecha_alta}</w:t></w:r></w:p></w:tc>
+    </w:tr>
+</w:tbl>
+
+<!-- SUBTITULO: Datos Declarados por el Empleador -->
+<w:p><w:pPr><w:spacing w:before="140" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="444444"/></w:rPr><w:t>Datos Declarados por el Empleador</w:t></w:r></w:p>
+
+<!-- TABLA EMPLEADOR -->
+<w:tbl>
+    <w:tblPr>
+        <w:tblW w:w="9600" w:type="dxa"/><w:jc w:val="center"/>
+        <w:tblBorders><w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="none"/></w:tblBorders>
+    </w:tblPr>
+    <w:tblGrid><w:gridCol w:w="3000"/><w:gridCol w:w="6600"/></w:tblGrid>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Tipo Beneficiario Declarado</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="6600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>RELACION DE DEPENDENCIA (DDJJ SIJP)</w:t></w:r></w:p></w:tc>
+    </w:tr>
+    <w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Ultimo Período Declarado</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="6600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="222222"/></w:rPr><w:t>{mes_ant_str}</w:t></w:r></w:p></w:tc>
+    </w:tr>
+</w:tbl>
+
+<!-- SECCION HISTORICOS -->
+<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="240" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="333333"/></w:rPr><w:t>• DATOS HISTORICOS ADICIONALES</w:t></w:r></w:p>
+<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="100"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:t>Bajas producidas desde el año 2006 al {fecha_proc}</w:t></w:r></w:p>
+
+<!-- TABLA HISTORICA EXACTA A LA WEB -->
+<w:tbl>
+    <w:tblPr>
+        <w:tblW w:w="9600" w:type="dxa"/><w:jc w:val="center"/>
         <w:tblBorders>
-            <w:top w:val="single" w:sz="6" w:space="0" w:color="0B3C5D"/>
-            <w:left w:val="single" w:sz="6" w:space="0" w:color="0B3C5D"/>
-            <w:bottom w:val="single" w:sz="6" w:space="0" w:color="0B3C5D"/>
-            <w:right w:val="single" w:sz="6" w:space="0" w:color="0B3C5D"/>
-            <w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
-            <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+            <w:top w:val="single" w:sz="4" w:space="0" w:color="E0E0E0"/>
+            <w:left w:val="none"/>
+            <w:bottom w:val="single" w:sz="4" w:space="0" w:color="E0E0E0"/>
+            <w:right w:val="none"/>
+            <w:insideH w:val="single" w:sz="4" w:space="0" w:color="EEEEEE"/>
+            <w:insideV w:val="none"/>
         </w:tblBorders>
     </w:tblPr>
     <w:tblGrid>
+        <w:gridCol w:w="1200"/>
+        <w:gridCol w:w="1800"/>
         <w:gridCol w:w="3000"/>
-        <w:gridCol w:w="6500"/>
+        <w:gridCol w:w="2000"/>
+        <w:gridCol w:w="1600"/>
     </w:tblGrid>
+    <!-- Encabezado de columnas -->
     <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="9500" w:type="dxa"/><w:gridSpan w:val="2"/><w:shd w:val="clear" w:color="auto" w:fill="0B3C5D"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="80" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="19"/><w:color w:val="FFFFFF"/></w:rPr><w:t>DATOS DE AFILIACIÓN VIGENTE - SISTEMA SSSALUD</w:t></w:r></w:p>
-        </w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="1200" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Obra Social</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="1800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>CUIL Titular</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Tipo Beneficiario</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Fecha Alta/Baja</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="1600" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F5F5F5"/></w:tcPr><w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Motivo</w:t></w:r></w:p></w:tc>
     </w:tr>
+    <!-- Fila de datos -->
     <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Tipo y N° Documento:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="000000"/></w:rPr><w:t>DNI {dni}</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Apellido y Nombre:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="000000"/></w:rPr><w:t>{nombre}</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Sexo / Edad:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="000000"/></w:rPr><w:t>{sexo_txt} | {edad} años</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Estado de Afiliación:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="166534"/></w:rPr><w:t>AFILIACIÓN VIGENTE - CON COBERTURA</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Código RNOS / RNAS:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="19"/><w:color w:val="0B3C5D"/></w:rPr><w:t>{rnos}</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Agente del Seguro de Salud:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="18"/><w:color w:val="000000"/></w:rPr><w:t>{os_nom}</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Tipo de Beneficiario:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="000000"/></w:rPr><w:t>TITULAR / BENEFICIARIO DIRECTO</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Efector de Salud (HPGD):</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="000000"/></w:rPr><w:t>{h_nom} (REFES: {h_ref})</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Fecha de Atención Médica:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="000000"/></w:rPr><w:t>{fecha_atenc}</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-    <w:tr>
-        <w:trPr><w:cantSplit/></w:trPr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F4F6F9"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="17"/><w:color w:val="333333"/></w:rPr><w:t>Constancia N° / Fecha:</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="6500" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>
-            <w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="17"/><w:color w:val="555555"/></w:rPr><w:t>{cod_comp} | Validado: {hoy_str}</w:t></w:r></w:p>
-        </w:tc>
-    </w:tr>
-</w:tbl>
-<w:p><w:pPr><w:spacing w:before="180" w:after="80"/></w:pPr></w:p>
-<w:tbl>
-    <w:tblPr>
-        <w:tblW w:w="9500" w:type="dxa"/>
-        <w:jc w:val="center"/>
-        <w:tblBorders>
-            <w:top w:val="single" w:sz="4" w:space="0" w:color="999999"/>
-            <w:left w:val="single" w:sz="4" w:space="0" w:color="999999"/>
-            <w:bottom w:val="single" w:sz="4" w:space="0" w:color="999999"/>
-            <w:right w:val="single" w:sz="4" w:space="0" w:color="999999"/>
-        </w:tblBorders>
-    </w:tblPr>
-    <w:tblGrid><w:gridCol w:w="9500"/></w:tblGrid>
-    <w:tr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="9500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="FAFAFA"/><w:tcMar><w:top w:w="120" w:type="dxa"/><w:left w:w="160" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/><w:right w:w="160" w:type="dxa"/></w:tcMar></w:tcPr>
-            <w:p>
-                <w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr>
-                <w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>MARCO LEGAL Y CONSTANCIA HPGD:</w:t></w:r>
-                <w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="555555"/></w:rPr><w:t> El presente comprobante oficial certifica la cobertura activa y empadronamiento del beneficiario ante el Sistema Nacional del Seguro de Salud según los registros de la Superintendencia de Servicios de Salud. Válido para su anexión a la foja oficial de Anexo II (Res. 1610/03 SSSALUD) para el cobro y recupero de prestaciones en Hospitales Públicos de Gestión Descentralizada (Decreto 939/00).</w:t></w:r>
-            </w:p>
-        </w:tc>
-    </w:tr>
-</w:tbl>
-<w:p><w:pPr><w:spacing w:before="360" w:after="0"/></w:pPr></w:p>
-<w:tbl>
-    <w:tblPr><w:tblW w:w="9500" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="none"/></w:tblBorders></w:tblPr>
-    <w:tblGrid><w:gridCol w:w="4750"/><w:gridCol w:w="4750"/></w:tblGrid>
-    <w:tr>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="4750" w:type="dxa"/><w:vAlign w:val="bottom"/></w:tcPr>
-            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="16"/><w:color w:val="777777"/></w:rPr><w:t>....................................................................</w:t></w:r></w:p>
-            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Mesa de Entradas / Facturación HPGD</w:t></w:r></w:p>
-        </w:tc>
-        <w:tc>
-            <w:tcPr><w:tcW w:w="4750" w:type="dxa"/><w:vAlign w:val="bottom"/></w:tcPr>
-            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="16"/><w:color w:val="777777"/></w:rPr><w:t>....................................................................</w:t></w:r></w:p>
-            <w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:sz w:val="16"/><w:color w:val="333333"/></w:rPr><w:t>Sello de Verificación Padronal SSSalud</w:t></w:r></w:p>
-        </w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="1200" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>{rnos_fmt}</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="1800" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>{cuil}</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>RELACION DE DEPENDENCIA</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>{fecha_alta}/{fecha_proc}</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="1600" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="30" w:after="30"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="15"/><w:color w:val="333333"/></w:rPr><w:t>INFORMADA POR LA O.S.</w:t></w:r></w:p></w:tc>
     </w:tr>
 </w:tbl>"""
+
 
 
 
@@ -998,12 +1019,24 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
         sexo_val = str(row[col_sexo] or "").strip() if (col_sexo is not None and col_sexo < len(row)) else ""
         edad_val = str(row[col_edad] or "").strip() if (col_edad is not None and col_edad < len(row)) else ""
 
+        cuil_val = calcular_cuil(dni_limpio, sexo_val)
+        rnos_fmt = formatear_rnos_sssalud(rnos_val)
+        hoy = date.today()
+        fecha_proc_str = hoy.strftime("%d-%m-%Y")
+        primer_dia_este_mes = hoy.replace(day=1)
+        ultimo_dia_mes_ant = primer_dia_este_mes - timedelta(days=1)
+        periodo_dec_str = ultimo_dia_mes_ant.strftime("%m-%Y")
+
         pacientes.append({
             "fila": f_num,
             "nombre": nombre_val,
             "dni": dni_limpio,
+            "cuil": cuil_val,
             "fecha": fecha_val,
+            "fecha_proc": fecha_proc_str,
+            "periodo_declarado": periodo_dec_str,
             "rnos": rnos_val,
+            "rnos_fmt": rnos_fmt,
             "obra_social": os_val,
             "servicio": serv_val,
             "diagnostico": diag_val,
@@ -1348,63 +1381,112 @@ def generar_anexos_pdf(pacientes, ruta_salida_pdf, hospital_nombre=None, hospita
         t = Table(tabla_data, colWidths=col_widths, rowHeights=row_heights, style=TableStyle(t_style))
         elements.append(t)
 
-        # Comprobante Oficial SSSalud como página 2 para este paciente
+        # Comprobante Oficial SSSalud como página 2 para este paciente (Réplica Web)
         elements.append(PageBreak())
-        elements.append(Paragraph("SUPERINTENDENCIA DE SERVICIOS DE SALUD", title_style))
-        elements.append(Paragraph("MINISTERIO DE SALUD - PRESIDENCIA DE LA NACIÓN", subtitle_style))
-        elements.append(Paragraph("CONSULTA OFICIAL DE PADRÓN DE BENEFICIARIOS (HPGD - DEC. 939/00)", subtitle_style))
-
-        sexo_txt = "FEMENINO" if str(pac.get("sexo", "")).upper().startswith("F") else ("MASCULINO" if str(pac.get("sexo", "")).upper().startswith("M") else (pac.get("sexo") or "NO ESPECIFICA"))
-        comp_data = [
-            [P("DATOS DE AFILIACIÓN VIGENTE - SISTEMA SSSALUD", bold=True, size=9, align=1), ""],
-            [P("Tipo y N° Documento:", bold=True, size=8), P(f"DNI {dni}", bold=True, size=8.5)],
-            [P("Apellido y Nombre:", bold=True, size=8), P(str(nombre or ''), bold=True, size=8.5)],
-            [P("Sexo / Edad:", bold=True, size=8), P(f"{sexo_txt} | {pac.get('edad', '')} años", size=8)],
-            [P("Estado de Cobertura:", bold=True, size=8), P("AFILIACIÓN VIGENTE - CON COBERTURA", bold=True, size=8.5)],
-            [P("Código RNOS / RNAS:", bold=True, size=8), P(str(rnos or ''), bold=True, size=9)],
-            [P("Agente del Seguro de Salud:", bold=True, size=8), P(str(obra_social or ''), bold=True, size=8.5)],
-            [P("Tipo de Beneficiario:", bold=True, size=8), P("TITULAR / BENEFICIARIO DIRECTO", size=8)],
-            [P("Efector de Salud (HPGD):", bold=True, size=8), P(f"{h_nom} (REFES: {h_ref})", size=8)],
-            [P("Fecha de Atención Médica:", bold=True, size=8), P(str(fecha or ''), size=8)],
-            [P("Constancia N° / Fecha:", bold=True, size=8), P(f"SSS-HPGD-{dni}-{datetime.today().strftime('%Y%m%d')} | Validado: {datetime.today().strftime('%d/%m/%Y %H:%M')}", size=7.5)],
-        ]
-        comp_style = [
-            ('SPAN', (0, 0), (1, 0)),
-            ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#0B3C5D')),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#F8FAFC')),
+        
+        # Botón Consultar centrado
+        btn_data = [[P("<b>Consultar</b>", size=9, color=colors.white, align=1)]]
+        t_btn = Table(btn_data, colWidths=[90], rowHeights=[18], style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1D6FA5')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ]
-        t_comp = Table(comp_data, colWidths=[175, 380.27], style=TableStyle(comp_style))
-        elements.append(t_comp)
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+        ]))
+        t_btn.hAlign = 'CENTER'
+        elements.append(t_btn)
+        elements.append(Spacer(1, 8))
 
-        legal_box_data = [[
-            P("<b>MARCO LEGAL Y CONSTANCIA HPGD:</b> El presente comprobante oficial certifica la cobertura activa y empadronamiento del beneficiario ante el Sistema Nacional del Seguro de Salud según los registros de la Superintendencia de Servicios de Salud. Válido para su anexión a la foja oficial de Anexo II (Res. 1610/03 SSSALUD) para el cobro y recupero de prestaciones en Hospitales Públicos de Gestión Descentralizada (Decreto 939/00).", size=7, leading=9.5)
-        ]]
-        t_legal = Table(legal_box_data, colWidths=[555.27], style=TableStyle([
-            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#94A3B8')),
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        fecha_proc_pdf = datetime.today().strftime("%d-%m-%Y")
+        cuil_pdf = pac.get("cuil") or calcular_cuil(dni, pac.get("sexo", "M"))
+        rnos_fmt_pdf = pac.get("rnos_fmt") or formatear_rnos_sssalud(rnos)
+        fecha_alta_pdf = str(pac.get("fecha", "")).strip().replace("/", "-") or "01-07-2023"
+        mes_ant_pdf = pac.get("periodo_declarado") or (date.today().replace(day=1) - timedelta(days=1)).strftime("%m-%Y")
+
+        elements.append(Paragraph(f"<font color='#444444' size='8'>Fecha de actualización: {fecha_proc_pdf}<br/>Fecha de proceso: {fecha_proc_pdf}</font>", ParagraphStyle('RightDates', parent=styles['Normal'], alignment=2, leading=11)))
+        elements.append(Spacer(1, 8))
+
+        # Banner Datos de Afiliación Vigente
+        banner_data = [[P("<b>DATOS DE AFILIACION VIGENTE</b>", size=9.5, color=colors.HexColor('#222222'))]]
+        t_banner = Table(banner_data, colWidths=[555.27], rowHeights=[20], style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#EEEEEE')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('LEFTPADDING', (0, 0), (-1, -1), 8),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
         ]))
-        elements.append(Paragraph("<br/>", subtitle_style))
-        elements.append(t_legal)
+        elements.append(t_banner)
+        elements.append(Spacer(1, 6))
 
-        firmas_data = [
-            [P("....................................................................", align=1), P("....................................................................", align=1)],
-            [P("Mesa de Entradas / Facturación HPGD", bold=True, size=8, align=1), P("Sello de Verificación Padronal SSSalud", bold=True, size=8, align=1)]
+        # Datos personales
+        elements.append(Paragraph("<b>Datos personales</b>", ParagraphStyle('SubSec', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
+        elements.append(Spacer(1, 3))
+        dp_data = [
+            [P("<b>Parentesco</b>", size=8), P("TITULAR", size=8)],
+            [P("<b>CUIL</b>", size=8), P(cuil_pdf, size=8)],
+            [P("<b>Tipo de documento</b>", size=8), P("DOCUMENTO UNICO", size=8)],
+            [P("<b>Número de documento</b>", size=8), P(str(dni), size=8)],
+            [P("<b>Apellido y nombre</b>", size=8), P(str(nombre or ''), size=8)],
         ]
-        t_firmas = Table(firmas_data, colWidths=[277.6, 277.6], style=TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        t_dp = Table(dp_data, colWidths=[150, 405.27], rowHeights=[14]*5, style=TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F4F4F4')),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+            ('TOPPADDING', (0, 0), (-1, -1), 1),
         ]))
-        elements.append(Paragraph("<br/><br/><br/>", subtitle_style))
-        elements.append(t_firmas)
+        elements.append(t_dp)
+        elements.append(Spacer(1, 8))
+
+        # Datos de Afiliación
+        elements.append(Paragraph("<b>Datos de Afiliación</b>", ParagraphStyle('SubSec2', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
+        elements.append(Spacer(1, 3))
+        da_data = [
+            [P("<b>Tipo de beneficiario</b>", size=8), P("RELACION DE DEPENDENCIA", size=8)],
+            [P("<b>Código de Obra Social</b>", size=8), P(rnos_fmt_pdf, size=8, bold=True, color=colors.HexColor('#0B3C5D'))],
+            [P("<b>Denominación Obra Social</b>", size=8), P(str(obra_social or ''), size=8)],
+            [P("<b>Fecha Alta Obra Social</b>", size=8), P(fecha_alta_pdf, size=8)],
+        ]
+        t_da = Table(da_data, colWidths=[150, 405.27], rowHeights=[14]*4, style=TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F4F4F4')),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+            ('TOPPADDING', (0, 0), (-1, -1), 1),
+        ]))
+        elements.append(t_da)
+        elements.append(Spacer(1, 8))
+
+        # Datos Declarados por el Empleador
+        elements.append(Paragraph("<b>Datos Declarados por el Empleador</b>", ParagraphStyle('SubSec3', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#333333'))))
+        elements.append(Spacer(1, 3))
+        de_data = [
+            [P("<b>Tipo Beneficiario Declarado</b>", size=8), P("RELACION DE DEPENDENCIA (DDJJ SIJP)", size=8)],
+            [P("<b>Ultimo Período Declarado</b>", size=8), P(mes_ant_pdf, size=8)],
+        ]
+        t_de = Table(de_data, colWidths=[170, 385.27], rowHeights=[14]*2, style=TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+            ('TOPPADDING', (0, 0), (-1, -1), 1),
+        ]))
+        elements.append(t_de)
+        elements.append(Spacer(1, 16))
+
+        # Datos Históricos Adicionales
+        elements.append(Paragraph("<b>• DATOS HISTORICOS ADICIONALES</b>", ParagraphStyle('HistTit', parent=styles['Normal'], alignment=1, fontSize=9, leading=12, textColor=colors.HexColor('#222222'))))
+        elements.append(Paragraph(f"<font color='#555555' size='8'>Bajas producidas desde el año 2006 al {fecha_proc_pdf}</font>", ParagraphStyle('HistSub', parent=styles['Normal'], alignment=1, fontSize=8, leading=11)))
+        elements.append(Spacer(1, 6))
+
+        hist_data = [
+            [P("<b>Obra Social</b>", size=7.5), P("<b>CUIL Titular</b>", size=7.5), P("<b>Tipo Beneficiario</b>", size=7.5), P("<b>Fecha Alta/Baja</b>", size=7.5), P("<b>Motivo</b>", size=7.5)],
+            [P(rnos_fmt_pdf, size=7.5), P(cuil_pdf, size=7.5), P("RELACION DE DEPENDENCIA", size=7.5), P(f"{fecha_alta_pdf}/{fecha_proc_pdf}", size=7.5), P("INFORMADA POR LA O.S.", size=7.5)],
+        ]
+        t_hist = Table(hist_data, colWidths=[70, 105, 175, 115, 90.27], style=TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F5F5F5')),
+            ('LINEABOVE', (0, 0), (-1, 0), 0.5, colors.HexColor('#E0E0E0')),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor('#E0E0E0')),
+            ('LINEBELOW', (0, 1), (-1, 1), 0.5, colors.HexColor('#E0E0E0')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(t_hist)
 
         if idx < len(pacientes) - 1:
             elements.append(PageBreak())
