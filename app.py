@@ -924,6 +924,13 @@ def procesar_archivo(
         estado["estado"] = "guardando"
         guardar_estado_proceso(id_proceso, estado)
         wb.save(archivo_salida)
+        try:
+            wb.close()
+            del wb
+        except Exception:
+            pass
+        import gc
+        gc.collect()
 
         # ----------------------------------------------------
         # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX OFICIAL)
@@ -1331,6 +1338,15 @@ def generar_anexos_directo():
             hospital_nombre=hosp_info["nombre"],
             hospital_refes=hosp_info["refes"]
         )
+
+        # Liberar archivo temporal y memoria RAM
+        try:
+            if temp_excel.exists():
+                temp_excel.unlink()
+        except Exception:
+            pass
+        import gc
+        gc.collect()
 
         # Nombre seguro y ASCII para encabezados HTTP
         raw_stem = Path(archivo.filename).stem

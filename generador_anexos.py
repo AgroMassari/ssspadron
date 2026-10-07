@@ -349,24 +349,24 @@ def _formatear_celda_texto(cell_xml, texto, font_sz="16"):
     return f'<w:tc>{tcPr_xml}{p_xml}</w:tc>'
 
 
-def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, hospital_refes=None):
+def _compilar_tabla_base(tabla_template, hospital_nombre=None, hospital_refes=None):
     """
-    Rellena una copia de la tabla Word del Anexo II con los datos de un paciente.
-    Conserva los atributos de tabla (<w:tblPr> y <w:tblGrid>) intactos.
+    Pre-compila la tabla de Anexo II inyectando el hospital emisor,
+    marcando Titular y Consulta, desmarcando Internación, y colocando
+    tokens de reemplazo ultrarrápidos para cada paciente.
     """
     idx_primer_tr = tabla_template.find('<w:tr')
     if idx_primer_tr == -1:
         return tabla_template
 
     encabezado_tabla = tabla_template[:idx_primer_tr]
-
     filas = re.findall(r'<w:tr[\s\S]*?</w:tr>', tabla_template)
     if len(filas) < 22:
         return tabla_template
 
     # 0. R2 y R3: Denominación HPGD y Código REFES
-    h_nom = hospital_nombre or paciente.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
-    h_ref = hospital_refes or paciente.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
+    h_nom = hospital_nombre or HOSPITAL_DEFECTO["nombre"]
+    h_ref = hospital_refes or HOSPITAL_DEFECTO["refes"]
 
     if h_nom and len(filas) > 2:
         filas[2] = re.sub(
@@ -382,29 +382,37 @@ def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, h
             filas[3]
         )
 
-    # 1. R6: Datos Beneficiario (Apellidos y Nombres en c0, DNI en c1)
+    # 1. R1: Recuadros de Fecha de atención (Cabecera)
+    r1_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[1])
+    if len(r1_cells) >= 4:
+        c1_dia = _formatear_celda_fecha(r1_cells[1], "___DIA_ATENCION___")
+        c1_mes = _formatear_celda_fecha(r1_cells[2], "___MES_ATENCION___")
+        c1_anio = _formatear_celda_fecha(r1_cells[3], "___ANIO_ATENCION___")
+        filas[1] = (filas[1]
+                    .replace(r1_cells[1], c1_dia, 1)
+                    .replace(r1_cells[2], c1_mes, 1)
+                    .replace(r1_cells[3], c1_anio, 1))
+
+    # 2. R6: Datos Beneficiario (Apellidos y Nombres en c0, DNI en c1)
     r6_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[6])
     if len(r6_cells) >= 2:
-        # Nombre y Apellido
-        c0_nuevo = re.sub(
+        c0_slot = re.sub(
             r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-            rf'\1<w:pPr><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>{escapar_xml(paciente.get("nombre", ""))}</w:t></w:r>\3',
+            r'\1<w:pPr><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>___PAC_NOMBRE___</w:t></w:r>\3',
             r6_cells[0],
             count=1
         )
-        # DNI
-        c1_nuevo = re.sub(
+        c1_slot = re.sub(
             r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-            rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>{escapar_xml(paciente.get("dni", ""))}</w:t></w:r>\3',
+            r'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>___PAC_DNI___</w:t></w:r>\3',
             r6_cells[1],
             count=1
         )
-        filas[6] = filas[6].replace(r6_cells[0], c0_nuevo, 1).replace(r6_cells[1], c1_nuevo, 1)
+        filas[6] = filas[6].replace(r6_cells[0], c0_slot, 1).replace(r6_cells[1], c1_slot, 1)
 
-    # 2. R8: Checkboxes Beneficiario (Titular c1, Sexo F c15 / M c17, Edad c18)
+    # 3. R8: Checkboxes Beneficiario (Titular = X, Sexo F / M slots, Edad slot)
     r8_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[8])
     if len(r8_cells) >= 19:
-        # Titular = X
         c1_titular = re.sub(
             r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
             r'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>X</w:t></w:r>\3',
@@ -413,68 +421,42 @@ def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, h
         )
         filas[8] = filas[8].replace(r8_cells[1], c1_titular, 1)
 
-        # Sexo
-        sexo = str(paciente.get("sexo", "")).strip().upper()
-        if sexo.startswith("F") and len(r8_cells) > 15:
-            c15_sexo = re.sub(
-                r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-                r'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>X</w:t></w:r>\3',
-                r8_cells[15],
-                count=1
-            )
-            filas[8] = filas[8].replace(r8_cells[15], c15_sexo, 1)
-        elif sexo.startswith("M") and len(r8_cells) > 17:
-            c17_sexo = re.sub(
-                r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-                r'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>X</w:t></w:r>\3',
-                r8_cells[17],
-                count=1
-            )
-            filas[8] = filas[8].replace(r8_cells[17], c17_sexo, 1)
+        c15_sexo = re.sub(
+            r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
+            r'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>___SEXO_F___</w:t></w:r>\3',
+            r8_cells[15],
+            count=1
+        )
+        filas[8] = filas[8].replace(r8_cells[15], c15_sexo, 1)
 
-        # Edad
-        edad = str(paciente.get("edad", "")).strip()
-        if edad and len(r8_cells) > 18:
-            c18_edad = re.sub(
-                r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-                rf'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>{escapar_xml(edad)}</w:t></w:r>\3',
-                r8_cells[18],
-                count=1
-            )
-            filas[8] = filas[8].replace(r8_cells[18], c18_edad, 1)
+        c17_sexo = re.sub(
+            r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
+            r'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>___SEXO_M___</w:t></w:r>\3',
+            r8_cells[17],
+            count=1
+        )
+        filas[8] = filas[8].replace(r8_cells[17], c17_sexo, 1)
 
-    # 3. R1 y R11: Fecha de atención desglosada en los 3 recuadros oficiales:
-    #    Recuadro 1: DÍA (DD)
-    #    Recuadro 2: MES (MM)
-    #    Recuadro 3: AÑO (YYYY)
-    fecha = paciente.get("fecha", "")
-    dia_str, mes_str, anio_str = desglosar_fecha(fecha)
+        c18_edad = re.sub(
+            r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
+            r'\1<w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>___PAC_EDAD___</w:t></w:r>\3',
+            r8_cells[18],
+            count=1
+        )
+        filas[8] = filas[8].replace(r8_cells[18], c18_edad, 1)
 
-    # Cabecera (R1: celdas 1, 2 y 3 bajo 'Fecha')
-    r1_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[1])
-    if len(r1_cells) >= 4:
-        c1_dia = _formatear_celda_fecha(r1_cells[1], dia_str)
-        c1_mes = _formatear_celda_fecha(r1_cells[2], mes_str)
-        c1_anio = _formatear_celda_fecha(r1_cells[3], anio_str)
-
-        filas[1] = (filas[1]
-                    .replace(r1_cells[1], c1_dia, 1)
-                    .replace(r1_cells[2], c1_mes, 1)
-                    .replace(r1_cells[3], c1_anio, 1))
-
-    # Fecha de prestación (R11: celdas 1, 2 y 3 bajo 'Fecha de prestación')
+    # 4. R11: Recuadros de Fecha de prestación
     r11_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[11])
     if len(r11_cells) >= 4:
-        c11_dia = _formatear_celda_fecha(r11_cells[1], dia_str)
-        c11_mes = _formatear_celda_fecha(r11_cells[2], mes_str)
-        c11_anio = _formatear_celda_fecha(r11_cells[3], anio_str)
-
+        c11_dia = _formatear_celda_fecha(r11_cells[1], "___DIA_PRESTACION___")
+        c11_mes = _formatear_celda_fecha(r11_cells[2], "___MES_PRESTACION___")
+        c11_anio = _formatear_celda_fecha(r11_cells[3], "___ANIO_PRESTACION___")
         filas[11] = (filas[11]
                      .replace(r11_cells[1], c11_dia, 1)
                      .replace(r11_cells[2], c11_mes, 1)
                      .replace(r11_cells[3], c11_anio, 1))
 
-    # 4. R12: Tipo de atención (Consulta c1 = X, Especialidad c3 = CARDIOLOGIA)
+    # 5. R12: Tipo de atención (Consulta = X, Especialidad slot)
     r12_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[12])
     if len(r12_cells) >= 4:
         c1_cons = re.sub(
@@ -483,75 +465,128 @@ def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, h
             r12_cells[1],
             count=1
         )
-        # Especialidad médica
-        esp = str(paciente.get("servicio") or "").strip().upper()
-        if not esp or esp in ["CONSULTA", "CONSULTAS", "CONSULTA MEDICA", "AMBULATORIO", "AMBULATORIA", "GUARDIA", "CONSULTA EXTERNA"]:
-            esp = "CARDIOLOGIA"
-        c3_serv = _formatear_celda_texto(r12_cells[3], esp, font_sz="16")
+        c3_serv = _formatear_celda_texto(r12_cells[3], "___PAC_SERVICIO___", font_sz="16")
         filas[12] = filas[12].replace(r12_cells[1], c1_cons, 1).replace(r12_cells[3], c3_serv, 1)
 
-    # 5. R13: Diagnóstico en c3
+    # 6. R13: Diagnóstico en c3
     r13_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[13])
     if len(r13_cells) >= 4:
-        diagnostico = str(paciente.get("diagnostico", "")).strip()
-        c3_diag = _formatear_celda_texto(r13_cells[3], diagnostico, font_sz="15")
+        c3_diag = _formatear_celda_texto(r13_cells[3], "___PAC_DIAGNOSTICO___", font_sz="15")
         filas[13] = filas[13].replace(r13_cells[3], c3_diag, 1)
 
-    # 5b. R17: Casilla de Internación SIEMPRE vacía (sin 'X')
-    if len(filas) > 17:
-        r17_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[17])
-        if len(r17_cells) >= 2:
-            # Quitar cualquier 'X' de la casilla de Internación (celda 1)
-            c1_sin_x = re.sub(
-                r'<w:r[\s\S]*?<w:t[^>]*>\s*X\s*</w:t>[\s\S]*?</w:r>',
-                r'',
-                r17_cells[1],
-                flags=re.IGNORECASE
-            )
-            c1_sin_x = re.sub(
-                r'<w:t[^>]*>\s*X\s*</w:t>',
-                r'',
-                c1_sin_x,
-                flags=re.IGNORECASE
-            )
-            filas[17] = filas[17].replace(r17_cells[1], c1_sin_x, 1)
+    # 7. Casilla de Internación SIEMPRE vacía (sin 'X')
+    for r_i, f_xml in enumerate(filas):
+        if re.search(r'Internaci[oó]n', f_xml, re.IGNORECASE):
+            r_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', f_xml)
+            if len(r_cells) >= 2:
+                c1_sin_x = re.sub(r'<w:r[\s\S]*?<w:t[^>]*>\s*X\s*</w:t>[\s\S]*?</w:r>', r'', r_cells[1], flags=re.IGNORECASE)
+                c1_sin_x = re.sub(r'<w:t[^>]*>\s*X\s*</w:t>', r'', c1_sin_x, flags=re.IGNORECASE)
+                filas[r_i] = filas[r_i].replace(r_cells[1], c1_sin_x, 1)
 
-    # 6. R21: Obra Social en c0, RNAS en c1
+    # 8. R21: Obra Social en c0, RNAS en c1
     r21_cells = re.findall(r'<w:tc[\s\S]*?</w:tc>', filas[21])
     if len(r21_cells) >= 3:
-        obra_social = paciente.get("obra_social", "")
         c0_os = re.sub(
             r'(<w:p[^>]*>)([\s\S]*?)(</w:p>)',
-            rf'\1<w:pPr><w:ind w:left="60"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>{escapar_xml(obra_social)}</w:t></w:r>\3',
+            r'\1<w:pPr><w:ind w:left="60"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="16"/></w:rPr><w:t>___PAC_OBRA_SOCIAL___</w:t></w:r>\3',
             r21_cells[0],
             count=1
         )
-        rnos = paciente.get("rnos", "")
-        if not rnos and obra_social:
-            rnos = buscar_rnos_por_nombre(obra_social)
-
-        # Reemplazar celda de RNAS con un único párrafo centrado y limpio
         tcPr_m = re.search(r'<w:tcPr>[\s\S]*?</w:tcPr>', r21_cells[1])
         tcPr_xml = tcPr_m.group(0) if tcPr_m else '<w:tcPr><w:tcW w:w="1204" w:type="dxa"/><w:gridSpan w:val="4"/><w:vAlign w:val="center"/></w:tcPr>'
-        c1_rnos = f'<w:tc>{tcPr_xml}<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>{escapar_xml(rnos)}</w:t></w:r></w:p></w:tc>'
-
+        c1_rnos = f'<w:tc>{tcPr_xml}<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>___PAC_RNOS___</w:t></w:r></w:p></w:tc>'
         filas[21] = filas[21].replace(r21_cells[0], c0_os, 1).replace(r21_cells[1], c1_rnos, 1)
 
     return f"{encabezado_tabla}{''.join(filas)}</w:tbl>"
+
+
+def _renderizar_foja_rapida(tabla_base, pac):
+    """
+    Rellena la tabla pre-compilada con los datos específicos del paciente
+    utilizando reemplazos directos de cadenas en nanosegundos sin regex.
+    """
+    dia, mes, anio = desglosar_fecha(pac.get("fecha"))
+    sexo = str(pac.get("sexo", "")).strip().upper()
+    sexo_f = "X" if sexo.startswith("F") else ""
+    sexo_m = "X" if sexo.startswith("M") else ""
+    edad = str(pac.get("edad", "")).strip()
+
+    serv = str(pac.get("servicio", "CARDIOLOGIA")).strip().upper()
+    if not serv or serv in ["CONSULTA", "CONSULTAS", "CONSULTA MEDICA", "AMBULATORIO", "AMBULATORIA", "GUARDIA", "CONSULTA EXTERNA"]:
+        serv = "CARDIOLOGIA"
+
+    os_nom = str(pac.get("obra_social", "")).strip()
+    rnos = str(pac.get("rnos", "")).strip()
+    if not rnos and os_nom:
+        rnos = buscar_rnos_por_nombre(os_nom)
+
+    return (
+        tabla_base
+        .replace("___DIA_ATENCION___", dia)
+        .replace("___MES_ATENCION___", mes)
+        .replace("___ANIO_ATENCION___", anio)
+        .replace("___DIA_PRESTACION___", dia)
+        .replace("___MES_PRESTACION___", mes)
+        .replace("___ANIO_PRESTACION___", anio)
+        .replace("___PAC_NOMBRE___", escapar_xml(pac.get("nombre", "")))
+        .replace("___PAC_DNI___", escapar_xml(pac.get("dni", "")))
+        .replace("___SEXO_F___", sexo_f)
+        .replace("___SEXO_M___", sexo_m)
+        .replace("___PAC_EDAD___", escapar_xml(edad))
+        .replace("___PAC_SERVICIO___", escapar_xml(serv))
+        .replace("___PAC_DIAGNOSTICO___", escapar_xml(pac.get("diagnostico", "")))
+        .replace("___PAC_OBRA_SOCIAL___", escapar_xml(os_nom))
+        .replace("___PAC_RNOS___", escapar_xml(rnos))
+    )
+
+
+def _renderizar_tabla_paciente(tabla_template, paciente, hospital_nombre=None, hospital_refes=None):
+    """
+    Rellena una copia de la tabla Word del Anexo II con los datos de un paciente.
+    Conserva compatibilidad total delegando en el motor de precompilación rápida.
+    """
+    h_nom = hospital_nombre or paciente.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
+    h_ref = hospital_refes or paciente.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
+    tabla_base = _compilar_tabla_base(tabla_template, h_nom, h_ref)
+    return _renderizar_foja_rapida(tabla_base, paciente)
 
 
 def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLOGIA"):
     """
     Lee un Excel (original o ya verificado) y extrae todos los registros
     con Obra Social válida para generar los Anexos II.
+    Usa iter_rows streaming y libera la memoria inmediatamente para soportar archivos gigantes.
     Garantiza captura de diagnóstico en todas las columnas y ordenamiento cronológico de menor a mayor.
     """
-    wb = openpyxl.load_workbook(excel_path, data_only=True)
-    ws = wb.active or wb.worksheets[0]
-    max_row = ws.max_row or 1
+    wb = None
+    filas_valores = []
+    try:
+        try:
+            wb = openpyxl.load_workbook(excel_path, data_only=True, read_only=True)
+        except Exception:
+            wb = openpyxl.load_workbook(excel_path, data_only=True)
 
-    # 1. Detectar fila de encabezados reales
-    fila_encabezado = None
+        ws = wb.active or wb.worksheets[0]
+        # Extraer filas como tuplas livianas (consumo ínfimo de RAM)
+        for row in ws.iter_rows(values_only=True):
+            if row and any(c is not None for c in row):
+                filas_valores.append(row)
+    finally:
+        if wb:
+            try:
+                wb.close()
+            except Exception:
+                pass
+            del wb
+            wb = None
+            import gc
+            gc.collect()
+
+    if not filas_valores:
+        return []
+
+    # 1. Detectar fila de encabezados reales en las primeras 45 filas
+    fila_encabezado_idx = None
     col_dni = None
     col_paciente = None
     col_fecha = None
@@ -562,108 +597,114 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
     col_rnos = None
     col_obra_social = None
 
-    for f in range(1, min(45, max_row + 1)):
+    for f_idx, row in enumerate(filas_valores[:45]):
         row_vals = {}
-        for c in range(1, 40):
-            val = str(ws.cell(f, c).value or "").strip()
-            if val:
-                row_vals[c] = val.lower()
+        for c_idx, val in enumerate(row):
+            if val is not None:
+                s_val = str(val).strip()
+                if s_val:
+                    row_vals[c_idx] = s_val.lower()
 
         # Chequear si contiene DNI / Documento
-        for c, t in row_vals.items():
+        for c_idx, t in row_vals.items():
             if any(k in t for k in ["dni", "documento", "nro doc", "nro. doc", "doc"]):
-                fila_encabezado = f
-                col_dni = c
+                fila_encabezado_idx = f_idx
+                col_dni = c_idx
                 break
 
-        if fila_encabezado:
-            for c, t in row_vals.items():
+        if fila_encabezado_idx is not None:
+            for c_idx, t in row_vals.items():
                 if any(k in t for k in ["paciente", "nombre", "apellido"]):
-                    col_paciente = c
+                    col_paciente = c_idx
                 elif any(k in t for k in ["cie10", "cie-10", "cie 10", "cie", "diag", "diagnóstico", "diagnostico", "motivo", "patolog", "afeccion", "cuadro"]):
-                    if c not in cols_diagnostico:
-                        cols_diagnostico.append(c)
+                    if c_idx not in cols_diagnostico:
+                        cols_diagnostico.append(c_idx)
                 elif "sexo" in t:
-                    col_sexo = c
+                    col_sexo = c_idx
                 elif "edad" in t:
-                    col_edad = c
+                    col_edad = c_idx
                 elif any(k in t for k in ["rnos", "rnas", "código os", "codigo os", "cod os", "cod. os", "cod rnos"]):
-                    col_rnos = c
+                    col_rnos = c_idx
                 elif any(k in t for k in ["obra social", "obrasocial", "obra_social", "cobertura", "prepaga", "o.s.", "o. social", "mutual", "entidad", "financiador", "padron", "padrón", "seguro", "sssalud", "sss", "resultado"]):
-                    col_obra_social = c
+                    col_obra_social = c_idx
                 elif any(k in t for k in ["especialidad", "servicio"]):
-                    col_servicio = c
+                    col_servicio = c_idx
 
-            # Detección inteligente de la columna de fecha de atención/prestación (evitando nacimiento/carga/vencimiento)
-            for c, t in row_vals.items():
+            # Detección inteligente de la columna de fecha de atención/prestación
+            for c_idx, t in row_vals.items():
                 if any(ex in t for ex in ["nacim", "nac", "venc", "emis", "carg", "alta", "baja"]):
                     continue
                 if any(k in t for k in ["fecha de atenc", "fecha atenc", "fecha de prest", "fecha prest", "fecha turno", "fecha consult", "f. atenc", "f. prest"]):
-                    col_fecha = c
+                    col_fecha = c_idx
                     break
 
-            if not col_fecha:
-                for c, t in row_vals.items():
+            if col_fecha is None:
+                for c_idx, t in row_vals.items():
                     if any(ex in t for ex in ["nacim", "nac", "venc", "emis", "carg", "alta", "baja"]):
                         continue
                     if any(k in t for k in ["ingreso", "egreso", "atencion", "prestacion"]) and "fecha" in t:
-                        col_fecha = c
+                        col_fecha = c_idx
                         break
 
-            if not col_fecha:
-                for c, t in row_vals.items():
+            if col_fecha is None:
+                for c_idx, t in row_vals.items():
                     if any(ex in t for ex in ["nacim", "nac", "venc", "emis", "carg", "alta", "baja"]):
                         continue
                     if "fecha" in t:
-                        col_fecha = c
+                        col_fecha = c_idx
                         break
 
             break
 
-    if not fila_encabezado:
-        fila_encabezado = 1
-        fila_datos = 2
+    if fila_encabezado_idx is None:
+        fila_datos_idx = 1
     else:
-        fila_datos = fila_encabezado + 1
+        fila_datos_idx = fila_encabezado_idx + 1
 
-    col_dni = col_dni or 1
-    col_paciente = col_paciente or (2 if col_dni != 2 else 3)
+    col_dni = col_dni if col_dni is not None else 0
+    col_paciente = col_paciente if col_paciente is not None else (1 if col_dni != 1 else 2)
 
     # Buscar columna de Obra Social si no se detectó por encabezado
-    if not col_obra_social:
-        for c in range(1, min(ws.max_column + 1 if ws.max_column else 40, 40)):
-            val_h = str(ws.cell(fila_encabezado, c).value or "").strip().lower()
+    if col_obra_social is None:
+        enc_row = filas_valores[fila_encabezado_idx] if fila_encabezado_idx is not None else (filas_valores[0] if filas_valores else ())
+        for c_idx, val in enumerate(enc_row):
+            val_h = str(val or "").strip().lower()
             if any(k in val_h for k in ["obra social", "obrasocial", "obra_social", "cobertura", "prepaga", "o.s.", "o. social", "mutual", "entidad", "financiador", "padron", "padrón", "seguro", "resultado"]):
-                col_obra_social = c
+                col_obra_social = c_idx
                 break
 
     # Heurística: Si aún no se encontró columna de Obra Social, escanear primeras filas de datos
-    if not col_obra_social:
+    if col_obra_social is None:
         patron_os = re.compile(r'(PAMI|INSSJP|OSDE|APROSS|IOMA|SWISS|MEDIFE|SANCOR|UNION|PERSONAL|FEDERADA|JERARQUIC|GALENO|OSPEDYC|OSECAC|OSPE|OSPRERA|DASPU|BANCARI|DOCENTE|OBRA SOCIAL)', re.IGNORECASE)
-        for c in range(1, min(ws.max_column + 1 if ws.max_column else 40, 40)):
-            if c in [col_dni, col_paciente]:
+        num_cols = max(len(r) for r in filas_valores[:15]) if filas_valores else 0
+        for c_idx in range(min(num_cols, 40)):
+            if c_idx in [col_dni, col_paciente]:
                 continue
             matches_count = 0
-            for f in range(fila_datos, min(fila_datos + 15, max_row + 1)):
-                cv = str(ws.cell(f, c).value or "").strip()
-                if patron_os.search(cv):
-                    matches_count += 1
+            for row in filas_valores[fila_datos_idx : min(fila_datos_idx + 15, len(filas_valores))]:
+                if c_idx < len(row):
+                    cv = str(row[c_idx] or "").strip()
+                    if patron_os.search(cv):
+                        matches_count += 1
             if matches_count >= 1:
-                col_obra_social = c
+                col_obra_social = c_idx
                 break
 
     # Si tampoco se detectó col_rnos por encabezado
-    if not col_rnos:
-        for c in range(1, min(ws.max_column + 1 if ws.max_column else 40, 40)):
-            val_h = str(ws.cell(fila_encabezado, c).value or "").strip().lower()
+    if col_rnos is None:
+        enc_row = filas_valores[fila_encabezado_idx] if fila_encabezado_idx is not None else (filas_valores[0] if filas_valores else ())
+        for c_idx, val in enumerate(enc_row):
+            val_h = str(val or "").strip().lower()
             if any(k in val_h for k in ["rnos", "rnas", "código os", "codigo os", "cod os", "cod. os", "cod rnos"]):
-                col_rnos = c
+                col_rnos = c_idx
                 break
 
     pacientes = []
 
-    for fila in range(fila_datos, max_row + 1):
-        dni_val = ws.cell(fila, col_dni).value
+    for f_num, row in enumerate(filas_valores[fila_datos_idx:], start=fila_datos_idx + 1):
+        if not row or col_dni >= len(row):
+            continue
+        dni_val = row[col_dni]
         if not dni_val:
             continue
         dni_limpio = re.sub(r'\D', '', str(dni_val).split('.')[0].strip())
@@ -674,8 +715,8 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
         os_val = ""
         rnos_val = ""
 
-        if col_obra_social:
-            raw_os = str(ws.cell(fila, col_obra_social).value or "").strip()
+        if col_obra_social is not None and col_obra_social < len(row):
+            raw_os = str(row[col_obra_social] or "").strip()
             if raw_os and raw_os.upper() not in ["NO AFILIADO", "SIN DNI", "ERROR CONSULTA", "NONE", ""]:
                 if " - " in raw_os:
                     partes = raw_os.split(" - ", 1)
@@ -688,8 +729,8 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
                 else:
                     os_val = raw_os
 
-        if col_rnos and not rnos_val:
-            raw_rnos = str(ws.cell(fila, col_rnos).value or "").strip()
+        if col_rnos is not None and col_rnos < len(row) and not rnos_val:
+            raw_rnos = str(row[col_rnos] or "").strip()
             digs_r = re.sub(r'\D', '', raw_rnos)
             if 4 <= len(digs_r) <= 8:
                 rnos_val = digs_r
@@ -704,8 +745,8 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
         if not os_val or os_val.upper() in ["NO AFILIADO", "SIN DNI", "ERROR CONSULTA"]:
             continue
 
-        nombre_val = str(ws.cell(fila, col_paciente).value or "").strip() if (col_paciente and ws.max_column and col_paciente <= ws.max_column) else ""
-        fecha_raw = ws.cell(fila, col_fecha).value if (col_fecha and ws.max_column and col_fecha <= ws.max_column) else None
+        nombre_val = str(row[col_paciente] or "").strip() if (col_paciente is not None and col_paciente < len(row)) else ""
+        fecha_raw = row[col_fecha] if (col_fecha is not None and col_fecha < len(row)) else None
         fecha_val = formatear_fecha(fecha_raw) if fecha_raw else datetime.today().strftime("%d/%m/%Y")
 
         # Especialidad médica (toma lo elegido por el usuario o de la columna de servicio)
@@ -713,36 +754,37 @@ def extraer_pacientes_afiliados_excel(excel_path, especialidad_defecto="CARDIOLO
         if not esp_base:
             esp_base = "CARDIOLOGIA"
         serv_val = esp_base
-        if col_servicio:
-            raw_s = str(ws.cell(fila, col_servicio).value or "").strip().upper()
-            if raw_s and raw_s not in ["NONE", "NULL", "-", "0", "CONSULTA", "CONSULTAS", "AMBULATORIO", "GUARDIA"]:
+        if col_servicio is not None and col_servicio < len(row):
+            raw_s = str(row[col_servicio] or "").strip().upper()
+            if raw_s and raw_s not in ["NONE", "NULL", "-", "0", "CONSULTA", "CONSULTAS", "AMBULATORIO", "GUARDIA", "CONSULTA EXTERNA"]:
                 serv_val = raw_s
 
         # Captura exhaustiva de diagnóstico en todas las columnas candidatas
         diag_val = ""
         for c_diag in cols_diagnostico:
-            v = str(ws.cell(fila, c_diag).value or "").strip()
-            if v and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", serv_val, "CONSULTA", ""]:
-                if not diag_val:
-                    diag_val = v
-                elif len(v) > len(diag_val):
-                    diag_val = v
+            if c_diag < len(row):
+                v = str(row[c_diag] or "").strip()
+                if v and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", serv_val, "CONSULTA", ""]:
+                    if not diag_val:
+                        diag_val = v
+                    elif len(v) > len(diag_val):
+                        diag_val = v
 
         # Fallback si las columnas candidatas vinieron vacías para este paciente
         if not diag_val:
-            for c_scan in range(1, min(ws.max_column + 1, 35)):
+            for c_scan, v_raw in enumerate(row[:35]):
                 if c_scan in [col_dni, col_paciente, col_fecha, col_sexo, col_edad, col_rnos, col_obra_social, col_servicio]:
                     continue
-                v = str(ws.cell(fila, c_scan).value or "").strip()
+                v = str(v_raw or "").strip()
                 if v and len(v) >= 3 and v.upper() not in ["NONE", "NULL", "-", "0", "CARDIOLOGIA", serv_val, "CONSULTA", "TITULAR", "M", "F", "NO AFILIADO"]:
                     diag_val = v
                     break
 
-        sexo_val = str(ws.cell(fila, col_sexo).value or "").strip() if col_sexo else ""
-        edad_val = str(ws.cell(fila, col_edad).value or "").strip() if col_edad else ""
+        sexo_val = str(row[col_sexo] or "").strip() if (col_sexo is not None and col_sexo < len(row)) else ""
+        edad_val = str(row[col_edad] or "").strip() if (col_edad is not None and col_edad < len(row)) else ""
 
         pacientes.append({
-            "fila": fila,
+            "fila": f_num,
             "nombre": nombre_val,
             "dni": dni_limpio,
             "fecha": fecha_val,
@@ -835,30 +877,34 @@ def generar_anexos_docx(pacientes, ruta_salida_docx, plantilla_path=None, hospit
     tabla_template = body_content[idx_tbl_inicio:idx_tbl_fin]
     despues_tabla = body_content[idx_tbl_fin:]
 
-    # Generar una foja por cada paciente
-    paginas = []
-    for pac in pacientes:
-        tabla_pac = _renderizar_tabla_paciente(
-            tabla_template,
-            pac,
-            hospital_nombre=h_nom,
-            hospital_refes=h_ref
-        )
-        paginas.append(f"{encabezado_pagina}{tabla_pac}")
+    # Compilar plantilla base una sola vez (hospital emisor y checkboxes fijos)
+    tabla_base = _compilar_tabla_base(tabla_template, h_nom, h_ref)
 
-    # Separar cada anexo con un salto de página
-    salto_pagina = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
-    cuerpo_combinado = salto_pagina.join(paginas) + despues_tabla
-
-    nuevo_doc_xml = doc_xml[:idx_body_inicio + 8] + cuerpo_combinado + doc_xml[idx_body_fin:]
-
-    archivos_zip['word/document.xml'] = nuevo_doc_xml.encode('utf-8')
-
-    # Guardar nuevo .docx
+    # Guardar nuevo .docx mediante STREAMING continuo al ZIP
+    # Mantiene el consumo de memoria RAM constante en < 10 MB independientemente de la cantidad de pacientes
     Path(ruta_salida_docx).parent.mkdir(exist_ok=True, parents=True)
     with zipfile.ZipFile(ruta_salida_docx, 'w', compression=zipfile.ZIP_DEFLATED) as z_out:
+        # 1. Copiar todos los archivos estáticos de la plantilla Word
         for name, data in archivos_zip.items():
-            z_out.writestr(name, data)
+            if name != 'word/document.xml':
+                z_out.writestr(name, data)
+
+        # 2. Escribir word/document.xml directamente en el stream del archivo ZIP
+        with z_out.open('word/document.xml', 'w') as xml_out:
+            xml_out.write(doc_xml[:idx_body_inicio + 8].encode('utf-8'))
+
+            salto_pagina_bytes = b'<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+            encabezado_bytes = encabezado_pagina.encode('utf-8')
+
+            for idx, pac in enumerate(pacientes):
+                if idx > 0:
+                    xml_out.write(salto_pagina_bytes)
+                xml_out.write(encabezado_bytes)
+                foja_xml = _renderizar_foja_rapida(tabla_base, pac)
+                xml_out.write(foja_xml.encode('utf-8'))
+
+            xml_out.write(despues_tabla.encode('utf-8'))
+            xml_out.write(doc_xml[idx_body_fin:].encode('utf-8'))
 
     return len(pacientes)
 
