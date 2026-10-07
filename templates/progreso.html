@@ -470,9 +470,17 @@ function actualizarProgreso() {
                 textoEstado;
 
 
+            const porcentajeNum = Number(data.porcentaje || 0);
+            const totalNum = Number(data.total || 0);
+            const procesadasNum = Number(data.procesadas || 0);
+            const esCompleto = porcentajeNum >= 100 || (totalNum > 0 && procesadasNum >= totalNum);
+
             if (
+                esCompleto ||
                 data.estado === "terminado" ||
-                data.estado === "generando_anexos"
+                data.estado === "generando_anexos" ||
+                data.estado === "guardando" ||
+                data.estado === "escribiendo_excel"
             ) {
                 const contenedor = document.getElementById("contenedorDescargas");
                 const botonExcel = document.getElementById("botonDescarga");
@@ -493,12 +501,19 @@ function actualizarProgreso() {
 
                 contenedor.style.display = "flex";
 
-                if (data.estado === "generando_anexos") {
-                    infoAnexos.textContent = "⏳ Generando fojas de Anexos II en Word... El Excel verificado ya está listo para descargar.";
-                } else {
+                if (data.estado === "terminado") {
                     const hospNom = data.hospital_nombre ? ` (${data.hospital_nombre})` : "";
                     infoAnexos.textContent = "✅ Se completaron y ordenaron " + (data.anexos_generados || data.afiliados || 0) + " fojas oficiales de Anexo II en Word (.docx)" + hospNom + ".";
                     return;
+                } else if (data.estado === "generando_anexos") {
+                    infoAnexos.textContent = "⏳ " + (data.ultimo_resultado || "Generando fojas de Anexos II en Word...") + " El Excel verificado ya está listo para descargar.";
+                } else if (data.estado === "guardando" || data.estado === "escribiendo_excel") {
+                    infoAnexos.textContent = "💾 " + (data.ultimo_resultado || "Guardando archivo Excel...") + " Ya podés descargar el Excel o los Anexos.";
+                } else if (esCompleto) {
+                    infoAnexos.textContent = "✅ Consultas finalizadas (" + (data.afiliados || 0) + " afiliados encontrados). Podés descargar el Excel verificado o los Anexos II.";
+                    if (data.estado === "consultando") {
+                        document.getElementById("estado").textContent = "✅ 100% de consultas finalizadas";
+                    }
                 }
             }
 

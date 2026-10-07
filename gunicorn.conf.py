@@ -12,15 +12,16 @@ workers = 1
 # 4 threads para permitir concurrencia liviana (consultar progreso, etc.) sin overhead
 threads = 4
 
-# Timeout extendido a 300 segundos (5 minutos) para procesar subidas de Excels masivos sin WORKER TIMEOUT
-timeout = 300
+# Timeout extendido a 600 segundos (10 minutos) para procesar subidas y consultas masivas
+timeout = 600
+graceful_timeout = 60
 
 # Keep-alive para conexiones HTTP
 keepalive = 5
 
-# Reciclado de worker preventivo para evitar fugas de memoria
-max_requests = 100
-max_requests_jitter = 10
+# Desactivar max_requests (0 = sin límite) para que Gunicorn no mate el worker ni los hilos en segundo plano
+max_requests = 0
+max_requests_jitter = 0
 
 # Nivel de log
 loglevel = "info"

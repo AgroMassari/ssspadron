@@ -141,7 +141,7 @@ def obtener_cache_multiples(dnis):
     if not dnis:
         return encontrados
     try:
-        with sqlite3.connect(CACHE_DB_PATH) as conn:
+        with sqlite3.connect(CACHE_DB_PATH, timeout=30.0) as conn:
             cur = conn.cursor()
             for i in range(0, len(dnis), 900):
                 lote = dnis[i:i+900]
@@ -157,7 +157,7 @@ def guardar_cache_multiples(items):
     if not items:
         return
     try:
-        with sqlite3.connect(CACHE_DB_PATH) as conn:
+        with sqlite3.connect(CACHE_DB_PATH, timeout=30.0) as conn:
             conn.executemany(
                 "INSERT OR REPLACE INTO padron_cache (dni, resultado) VALUES (?, ?)",
                 [(str(d), str(r)) for d, r in items if r and r != "ERROR CONSULTA"]
@@ -798,6 +798,10 @@ def procesar_archivo(
 
                     resultados_dni[dni] = res_completo
                     nuevos_para_guardar.append((dni, res_completo))
+                    # Guardar por lotes de 25 en SQLite para persistencia inmediata y evitar pérdidas
+                    if len(nuevos_para_guardar) % 25 == 0:
+                        guardar_cache_multiples(list(nuevos_para_guardar[-25:]))
+
                     estado["procesadas"] += cant
                     estado["consultas"] += 1
                     estado["fila"] = filas[-1]
@@ -846,16 +850,22 @@ def procesar_archivo(
 
             estado["procesadas"] = total
             estado["porcentaje"] = 100
+            estado["estado"] = "escribiendo_excel"
+            estado["ultimo_resultado"] = "Escribiendo RNOS y Obras Sociales en el Excel..."
             guardar_estado_proceso(id_proceso, estado)
 
-            # Guardar los nuevos en la base de datos persistente SQLite
+            # Guardar remanente en la base de datos persistente SQLite
             if nuevos_para_guardar:
                 guardar_cache_multiples(nuevos_para_guardar)
 
         # ----------------------------------------------------
         # 6. ESCRIBIR RESULTADOS EN EXCEL (RNOS Y OBRA SOCIAL)
         # ----------------------------------------------------
+        estado["estado"] = "escribiendo_excel"
+        estado["ultimo_resultado"] = "Escribiendo resultados en memoria de Excel..."
+        guardar_estado_proceso(id_proceso, estado)
         print("Escribiendo resultados en memoria...")
+
         for dni, filas in dni_a_filas.items():
             res_dni = resultados_dni.get(dni, "ERROR CONSULTA")
             rnos_val, os_val = extraer_rnos_y_obrasocial(res_dni)
@@ -883,6 +893,7 @@ def procesar_archivo(
         # 7. GUARDADO FINAL DE EXCEL
         # ----------------------------------------------------
         estado["estado"] = "guardando"
+        estado["ultimo_resultado"] = "Guardando archivo Excel en el servidor..."
         guardar_estado_proceso(id_proceso, estado)
         wb.save(archivo_salida)
         try:
@@ -897,14 +908,13 @@ def procesar_archivo(
         estado["archivo"] = Path(archivo_salida).name
         estado["procesadas"] = total
         estado["porcentaje"] = 100
-
-        # ----------------------------------------------------
-        # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX OFICIAL)
-        # ----------------------------------------------------
         estado["estado"] = "generando_anexos"
         estado["ultimo_resultado"] = "Generando y ordenando fojas de Anexo II en Word..."
         guardar_estado_proceso(id_proceso, estado)
 
+        # ----------------------------------------------------
+        # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX OFICIAL)
+        # ----------------------------------------------------
         archivo_anexos = RESULT_DIR / f"anexos_{id_proceso}.docx"
         cant_anexos = 0
         try:
@@ -1088,7 +1098,7 @@ def procesar():
             hosp_info["refes"],
             esp_req
         ),
-        daemon=True
+        daemon=False
     )
     hilo.start()
 
@@ -1166,6 +1176,53 @@ def descargar_excel_por_id(id_proceso):
     for p in RESULT_DIR.glob(f"*{id_proceso}*.xlsx"):
         if p.exists():
             return send_file(p, as_attachment=True)
+
+    # Reconstrucción instantánea de contingencia desde SQLite
+    for entrada in UPLOAD_DIR.glob(f"*{id_proceso}*"):
+        if entrada.exists() and entrada.suffix.lower() == ".xlsx":
+            try:
+                salida_path = RESULT_DIR / f"procesado_{entrada.name}"
+                if salida_path.exists():
+                    return send_file(salida_path, as_attachment=True)
+                wb = openpyxl.load_workbook(entrada)
+                ws = wb.active
+                fila_enc = 1
+                col_d = COLUMNA_DNI
+                for f in range(1, min(45, ws.max_row + 1)):
+                    for c in range(1, 40):
+                        v = str(ws.cell(f, c).value or "").strip().lower()
+                        if any(k in v for k in ["dni", "documento", "nro doc", "doc"]):
+                            fila_enc = f
+                            col_d = c
+                            break
+                    if fila_enc > 1:
+                        break
+                max_c = ws.max_column
+                col_r = max_c + 1
+                col_os = max_c + 2
+                ws.cell(fila_enc, col_r).value = "RNOS"
+                ws.cell(fila_enc, col_os).value = "OBRA SOCIAL"
+                dnis_map = {}
+                for f in range(fila_enc + 1, ws.max_row + 1):
+                    d = limpiar_dni(ws.cell(f, col_d).value)
+                    if d:
+                        dnis_map.setdefault(d, []).append(f)
+                res_cache = obtener_cache_multiples(list(dnis_map.keys()))
+                for d, filas in dnis_map.items():
+                    res_val = res_cache.get(d, "NO AFILIADO")
+                    r_val, o_val = extraer_rnos_y_obrasocial(res_val)
+                    for fil in filas:
+                        ws.cell(fil, col_r).value = r_val
+                        ws.cell(fil, col_os).value = o_val
+                wb.save(salida_path)
+                try:
+                    wb.close()
+                except Exception:
+                    pass
+                return send_file(salida_path, as_attachment=True)
+            except Exception as e_rec:
+                print(f"Error reconstruyendo Excel de contingencia: {e_rec}")
+
     return "El archivo Excel procesado aún no está listo o en proceso de guardado.", 404
 
 
@@ -1184,28 +1241,50 @@ def descargar_anexos(id_proceso):
         )
 
     estado = obtener_estado_proceso(id_proceso)
+    archivo_salida = None
     if estado and estado.get("archivo"):
         archivo_salida = RESULT_DIR / estado["archivo"]
-        if archivo_salida.exists():
-            try:
-                esp_base = estado.get("especialidad", "CARDIOLOGIA")
-                pacientes = extraer_pacientes_afiliados_excel(archivo_salida, especialidad_defecto=esp_base)
-                if pacientes:
-                    h_nombre = estado.get("hospital_nombre") or HOSPITAL_DEFECTO["nombre"]
-                    h_refes = estado.get("hospital_refes") or HOSPITAL_DEFECTO["refes"]
-                    generar_anexos_docx(
-                        pacientes,
-                        archivo_anexos,
-                        hospital_nombre=h_nombre,
-                        hospital_refes=h_refes
-                    )
+    if not archivo_salida or not archivo_salida.exists():
+        for p in RESULT_DIR.glob(f"*{id_proceso}*.xlsx"):
+            if p.exists():
+                archivo_salida = p
+                break
+
+    # Si aún no existe archivo_salida, buscar en UPLOAD_DIR
+    if not archivo_salida or not archivo_salida.exists():
+        for entrada in UPLOAD_DIR.glob(f"*{id_proceso}*"):
+            if entrada.exists() and entrada.suffix.lower() == ".xlsx":
+                salida_candidata = RESULT_DIR / f"procesado_{entrada.name}"
+                if not salida_candidata.exists():
+                    try:
+                        descargar_excel_por_id(id_proceso)
+                    except Exception:
+                        pass
+                if salida_candidata.exists():
+                    archivo_salida = salida_candidata
+                break
+
+    if archivo_salida and archivo_salida.exists():
+        try:
+            esp_base = (estado and estado.get("especialidad")) or "CARDIOLOGIA"
+            pacientes = extraer_pacientes_afiliados_excel(archivo_salida, especialidad_defecto=esp_base)
+            if pacientes:
+                h_nombre = (estado and estado.get("hospital_nombre")) or HOSPITAL_DEFECTO["nombre"]
+                h_refes = (estado and estado.get("hospital_refes")) or HOSPITAL_DEFECTO["refes"]
+                generar_anexos_docx(
+                    pacientes,
+                    archivo_anexos,
+                    hospital_nombre=h_nombre,
+                    hospital_refes=h_refes
+                )
+                if archivo_anexos.exists():
                     return send_file(
                         archivo_anexos,
                         as_attachment=True,
                         download_name=f"Anexos_II_{id_proceso[:8]}.docx"
                     )
-            except Exception as e:
-                return f"Error generando anexos: {e}", 500
+        except Exception as e:
+            return f"Error generando anexos: {e}", 500
 
     return "No se encontraron anexos para este proceso o no hay pacientes afiliados.", 404
 
