@@ -402,12 +402,12 @@ class SessionWorker:
         with self.lock:
             if self.logged_in and not force:
                 return True
-            for intento in range(3):
+            for intento in range(2):
                 try:
                     # Limpiar cookies y crear sesión nueva para evitar arrastrar PHPSESSID expirada
                     self._init_session()
                     try:
-                        self.session.get(self.LOGIN_URL, verify=False, timeout=12)
+                        self.session.get(self.LOGIN_URL, verify=False, timeout=8)
                     except Exception:
                         pass
 
@@ -416,7 +416,7 @@ class SessionWorker:
                         '_pass_word_': self.password,
                         'submitbtn': 'Ingresar'
                     }
-                    res = self.session.post(self.LOGIN_URL, data=params, verify=False, timeout=15)
+                    res = self.session.post(self.LOGIN_URL, data=params, verify=False, timeout=8)
                     text = res.text
                     url_final = res.url.lower()
 
@@ -435,7 +435,7 @@ class SessionWorker:
                 except Exception as e:
                     print(f"Error en login sesión {self.idx} (intento {intento+1}): {e}")
 
-                time.sleep(0.8 * (intento + 1))
+                time.sleep(0.5 * (intento + 1))
 
             self.logged_in = False
             return False
@@ -481,13 +481,17 @@ class FastSSSaludClient:
             'B1': 'Consultar'
         }
 
-        worker = self.session_pool.get()
+        try:
+            worker = self.session_pool.get(timeout=10)
+        except Exception:
+            return "ERROR CONSULTA"
+
         try:
             # Rotación preventiva de sesión antes de que el servidor la expire por límite de consultas
             if worker.total_consultas >= MAX_CONSULTAS_POR_SESION:
                 worker.login(force=True)
 
-            max_intentos = 3
+            max_intentos = 2
             for intento in range(max_intentos):
                 # Pacing por worker para evitar bloqueos por tasa de consultas de SSSalud
                 ahora = time.time()
@@ -497,12 +501,12 @@ class FastSSSaludClient:
 
                 if not worker.logged_in:
                     if not worker.login(force=True):
-                        time.sleep(0.8 * (intento + 1))
+                        time.sleep(0.5 * (intento + 1))
                         continue
 
                 try:
                     worker.ultimo_request = time.time()
-                    res = worker.session.post(self.QUERY_URL, data=params, verify=False, timeout=12)
+                    res = worker.session.post(self.QUERY_URL, data=params, verify=False, timeout=8)
                     worker.total_consultas += 1
                     try:
                         if res.encoding and res.encoding.lower() == 'iso-8859-1':
@@ -532,9 +536,8 @@ class FastSSSaludClient:
                     )
 
                     if es_sesion_caida:
-                        print(f"Sesión {worker.idx} caída o rechazada (HTTP {res.status_code}) para DNI {dni_str}. Reautenticando...")
                         worker.logged_in = False
-                        time.sleep(0.6 * (intento + 1))
+                        time.sleep(0.4 * (intento + 1))
                         worker.login(force=True)
                         continue
 
@@ -544,30 +547,11 @@ class FastSSSaludClient:
                             CACHE_DNI[dni_str] = resultado
                         return resultado
 
-                    # Si el resultado fue ERROR CONSULTA, la respuesta fue anómala o el token se invalidó
-                    print(f"Respuesta inesperada para DNI {dni_str} en worker {worker.idx} (intento {intento+1}/{max_intentos}). Renovando sesión...")
-                    worker.logged_in = False
-                    time.sleep(0.6 * (intento + 1))
-                    worker.login(force=True)
-
                 except Exception as e:
                     print(f"Error consultando DNI {dni_str} en worker {worker.idx} (intento {intento+1}): {e}")
                     worker.logged_in = False
-                    time.sleep(0.8 * (intento + 1))
+                    time.sleep(0.5 * (intento + 1))
                     worker.login(force=True)
-
-            # Fallback opcional si todos los intentos directos fallaron
-            if self._fallback_sss:
-                try:
-                    res_fb = self._fallback_sss.query(dni_str)
-                    if res_fb.get("ok"):
-                        resultado = parsear_datos_fallback(res_fb.get("resultados", {}))
-                        if resultado != "ERROR CONSULTA":
-                            with CACHE_LOCK:
-                                CACHE_DNI[dni_str] = resultado
-                            return resultado
-                except Exception:
-                    pass
 
             return "ERROR CONSULTA"
         finally:
@@ -862,30 +846,17 @@ def procesar_archivo(
                     except Exception as ex_hilo:
                         print(f"Error en hilo de consulta: {ex_hilo}")
 
-            # Reintento secundario automático para DNIs que tuvieron microcortes temporales
-            dnis_con_error = [d for d in dnis_pendientes if resultados_dni.get(d) == "ERROR CONSULTA"]
-            if dnis_con_error:
-                print(f"Reintentando {len(dnis_con_error)} DNIs con error de consulta temporal...")
-                time.sleep(1.0)
-                for d in dnis_con_error:
-                    time.sleep(0.15)
-                    res_reintento = consultar_dni(sss, d)
-                    if res_reintento != "ERROR CONSULTA":
-                        cant = len(dni_a_filas[d])
-                        r_cod, r_den = extraer_rnos_y_obrasocial(res_reintento)
-                        if r_cod and r_den and r_cod not in r_den:
-                            res_reint_comp = f"{r_cod} - {r_den}"
-                        else:
-                            res_reint_comp = res_reintento
-                        resultados_dni[d] = res_reint_comp
-                        nuevos_para_guardar.append((d, res_reint_comp))
-                        with lock_estado:
-                            estado["errores"] = max(0, estado["errores"] - cant)
-                            if res_reintento == "NO AFILIADO":
-                                estado["no_afiliados"] += cant
-                            else:
-                                estado["afiliados"] += cant
-                            guardar_estado_proceso(id_proceso, estado)
+            # Asegurar que ningún DNI quede sin registrar o pendiente
+            for d in dnis_pendientes:
+                if d not in resultados_dni:
+                    resultados_dni[d] = "ERROR CONSULTA"
+                    cant = len(dni_a_filas[d])
+                    estado["errores"] += cant
+                    estado["procesadas"] += cant
+
+            estado["procesadas"] = total
+            estado["porcentaje"] = 100
+            guardar_estado_proceso(id_proceso, estado)
 
             # Guardar los nuevos en la base de datos persistente SQLite
             if nuevos_para_guardar:
@@ -931,6 +902,11 @@ def procesar_archivo(
             pass
         import gc
         gc.collect()
+
+        # El Excel ya está 100% guardado y disponible para descarga inmediata
+        estado["archivo"] = Path(archivo_salida).name
+        estado["procesadas"] = total
+        estado["porcentaje"] = 100
 
         # ----------------------------------------------------
         # 8. GENERACIÓN AUTOMÁTICA DE ANEXOS II (WORD .DOCX OFICIAL)
@@ -1179,6 +1155,23 @@ def descargar(nombre):
         archivo,
         as_attachment=True
     )
+
+
+# ============================================================
+# DESCARGAR EXCEL PROCESADO POR ID
+# ============================================================
+
+@app.route("/descargar_excel/<id_proceso>")
+def descargar_excel_por_id(id_proceso):
+    estado = obtener_estado_proceso(id_proceso)
+    if estado and estado.get("archivo"):
+        archivo = RESULT_DIR / estado["archivo"]
+        if archivo.exists():
+            return send_file(archivo, as_attachment=True)
+    for p in RESULT_DIR.glob(f"*{id_proceso}*.xlsx"):
+        if p.exists():
+            return send_file(p, as_attachment=True)
+    return "El archivo Excel procesado aún no está listo o en proceso de guardado.", 404
 
 
 # ============================================================

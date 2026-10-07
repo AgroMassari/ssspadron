@@ -293,7 +293,7 @@
             class="error oculto">
         </div>
 
-        <div id="contenedorDescargas" class="oculto" style="margin-top: 25px; display: flex; flex-direction: column; gap: 12px;">
+        <div id="contenedorDescargas" style="display: none; margin-top: 25px; flex-direction: column; gap: 12px;">
             <a
                 id="botonAnexos"
                 class="boton"
@@ -315,7 +315,7 @@
                 id="botonDescarga"
                 class="boton"
                 style="background: #16a34a; margin-top: 0; font-size: 15px; font-weight: 600; padding: 13px 20px;"
-                href="#">
+                href="/descargar_excel/{{ id_proceso }}">
                 📊 DESCARGAR EXCEL PROCESADO
             </a>
 
@@ -471,25 +471,35 @@ function actualizarProgreso() {
 
 
             if (
-                data.estado ===
-                "terminado"
+                data.estado === "terminado" ||
+                data.estado === "generando_anexos"
             ) {
                 const contenedor = document.getElementById("contenedorDescargas");
                 const botonExcel = document.getElementById("botonDescarga");
                 const botonAnexos = document.getElementById("botonAnexos");
                 const infoAnexos = document.getElementById("infoAnexos");
 
-                botonExcel.href = "/descargar/" + (data.archivo || "");
+                if (data.archivo) {
+                    botonExcel.href = "/descargar/" + data.archivo;
+                } else {
+                    botonExcel.href = "/descargar_excel/" + idProceso;
+                }
+
                 if (data.archivo_anexos) {
                     botonAnexos.href = "/descargar/" + data.archivo_anexos;
                 } else {
                     botonAnexos.href = "/descargar_anexos/" + idProceso;
                 }
-                contenedor.classList.remove("oculto");
 
-                const hospNom = data.hospital_nombre ? ` (${data.hospital_nombre})` : "";
-                infoAnexos.textContent = "✅ Se completaron y ordenaron " + (data.anexos_generados || data.afiliados || 0) + " fojas oficiales de Anexo II en Word (.docx)" + hospNom + ".";
-                return;
+                contenedor.style.display = "flex";
+
+                if (data.estado === "generando_anexos") {
+                    infoAnexos.textContent = "⏳ Generando fojas de Anexos II en Word... El Excel verificado ya está listo para descargar.";
+                } else {
+                    const hospNom = data.hospital_nombre ? ` (${data.hospital_nombre})` : "";
+                    infoAnexos.textContent = "✅ Se completaron y ordenaron " + (data.anexos_generados || data.afiliados || 0) + " fojas oficiales de Anexo II en Word (.docx)" + hospNom + ".";
+                    return;
+                }
             }
 
 
