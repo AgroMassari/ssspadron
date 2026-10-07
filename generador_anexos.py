@@ -1,4 +1,5 @@
 import re
+import time
 import uuid
 import zipfile
 import xml.sax.saxutils as saxutils
